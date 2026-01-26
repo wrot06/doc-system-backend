@@ -4,6 +4,8 @@ const multer=require('multer')
 const crypto=require('crypto')
 const db=require('./db')
 const minio=require('./minio')
+const {toPDFA}=require('./pdf')
+const {insertQR}=require('./qr')
 
 const app=express()
 
@@ -15,18 +17,34 @@ const upload=multer()
 app.post('/documentos',upload.single('pdf'),async(req,res)=>{
  try{
   if(!req.file) return res.status(400).send('PDF requerido')
-  if(req.file.mimetype!=='application/pdf')
-   return res.status(400).send('Archivo no es PDF')
+  if(req.file.mimetype!=='application/pdf') return res.status(400).send('Archivo no es PDF')
 
   const nombre=req.body.nombre_documento
-  if(!nombre||!nombre.trim())
-   return res.status(400).send('Nombre del documento requerido')
+  if(!nombre||!nombre.trim()) return res.status(400).send('Nombre del documento requerido')
 
-  const hash=crypto.createHash('sha256').update(req.file.buffer).digest('hex')
   const radicado=`RAD-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now()}`
-  const path=`${radicado}/v1.pdf`
 
-  await minio.putObject(process.env.MINIO_BUCKET,path,req.file.buffer)
+  const baseHash=crypto.createHash('sha256').update(req.file.buffer).digest('hex')
+  const pdfPDFA=await toPDFA(req.file.buffer)
+
+  const dup=await db.query(
+   'SELECT storage_path FROM documento_versiones WHERE hash=$1 LIMIT 1',
+   [baseHash]
+  )
+
+  let storagePath
+  if(dup.rowCount){
+   storagePath=dup.rows[0].storage_path
+  }else{
+   storagePath=`base/${baseHash}.pdf`
+   await minio.putObject(process.env.MINIO_BUCKET,storagePath,pdfPDFA)
+  }
+
+  const pdfFinal=await insertQR(
+   pdfPDFA,
+   radicado,
+   `http://localhost:3000/verificar/${radicado}`
+  )
 
   const doc=await db.query(
    'INSERT INTO documentos(radicado,nombre,version_actual) VALUES($1,$2,1) RETURNING id',
@@ -35,7 +53,7 @@ app.post('/documentos',upload.single('pdf'),async(req,res)=>{
 
   await db.query(
    'INSERT INTO documento_versiones(documento_id,version,hash,storage_path,peso) VALUES($1,1,$2,$3,$4)',
-   [doc.rows[0].id,hash,path,req.file.size]
+   [doc.rows[0].id,baseHash,storagePath,pdfPDFA.length]
   )
 
   res.json({radicado})
@@ -203,5 +221,57 @@ app.get('/public/:token',async(req,res)=>{
  }catch(e){
   console.error(e)
   res.status(500).send('Error interno')
+ }
+})
+
+
+app.get('/verificar/:radicado',async(req,res)=>{
+ try{
+  const {radicado}=req.params
+
+  const q=await db.query(`
+   SELECT d.nombre,d.radicado,d.version_actual,d.created_at,
+          dv.hash,dv.storage_path
+   FROM documentos d
+   JOIN documento_versiones dv
+     ON dv.documento_id=d.id AND dv.es_actual=true
+   WHERE d.radicado=$1
+  `,[radicado])
+
+  if(!q.rowCount)
+   return res.status(404).json({valido:false,motivo:"Documento no existe"})
+
+  const doc=q.rows[0]
+  const stream=await minio.getObject(
+   process.env.MINIO_BUCKET,
+   doc.storage_path
+  )
+
+  const hasher=crypto.createHash('sha256')
+
+  await new Promise((ok,fail)=>{
+   stream.on('data',d=>hasher.update(d))
+   stream.on('end',ok)
+   stream.on('error',fail)
+  })
+
+  const hashReal=hasher.digest('hex')
+  const integra=hashReal===doc.hash
+
+  res.json({
+   valido:true,
+   radicado:doc.radicado,
+   nombre:doc.nombre,
+   version:doc.version_actual,
+   fecha:doc.created_at,
+   integridad:integra?"OK":"COMPROMETIDA",
+   descarga:integra
+    ?`/documentos/${doc.radicado}/download`
+    :null
+  })
+
+ }catch(e){
+  console.error(e)
+  res.status(500).json({error:"Error interno"})
  }
 })
