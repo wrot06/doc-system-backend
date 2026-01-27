@@ -30,9 +30,7 @@ app.post('/documentos',upload.single('pdf'),async(req,res)=>{
   const buffer=req.file.buffer
   const hash=crypto.createHash('sha256').update(buffer).digest('hex')
 
-  /* buscar archivo físico por hash */
-  let archivoId
-  let minioKey
+  let archivoId,minioKey
 
   const dup=await db.query(
    'SELECT id,minio_key FROM archivos WHERE hash_sha256=$1',
@@ -53,24 +51,17 @@ app.post('/documentos',upload.single('pdf'),async(req,res)=>{
    archivoId=a.rows[0].id
   }
 
-  /* insertar documento */
   const d=await db.query(
    'INSERT INTO documentos(radicado,nombre_documento,created_at) VALUES($1,$2,now()) RETURNING id',
    [radicado,nombre]
   )
 
-  /* versión 1 */
   await db.query(
    'INSERT INTO documento_versiones(documento_id,archivo_id,version) VALUES($1,$2,1)',
    [d.rows[0].id,archivoId]
   )
 
-  /* QR (no altera almacenamiento, solo validación) */
-  await insertQR(
-   buffer,
-   radicado,
-   `http://localhost:3000/verificar/${radicado}`
-  )
+  await insertQR(buffer,radicado,`http://localhost:3000/verificar/${radicado}`)
 
   res.json({radicado,version:1})
  }catch(e){
@@ -106,8 +97,7 @@ app.post('/documentos/:radicado/version',upload.single('pdf'),async(req,res)=>{
   const buffer=req.file.buffer
   const hash=crypto.createHash('sha256').update(buffer).digest('hex')
 
-  let archivoId
-  let minioKey
+  let archivoId,minioKey
 
   const dup=await db.query(
    'SELECT id,minio_key FROM archivos WHERE hash_sha256=$1',
@@ -133,13 +123,46 @@ app.post('/documentos/:radicado/version',upload.single('pdf'),async(req,res)=>{
    [documentoId,archivoId,version]
   )
 
-  await insertQR(
-   buffer,
-   radicado,
-   `http://localhost:3000/verificar/${radicado}`
-  )
+  await insertQR(buffer,radicado,`http://localhost:3000/verificar/${radicado}`)
 
   res.json({radicado,version})
+ }catch(e){
+  console.error(e)
+  res.status(500).send(e.message)
+ }
+})
+
+/* ===============================
+   HISTORIAL DE VERSIONES  ✅ NUEVO
+================================ */
+app.get('/documentos/:radicado/versiones',async(req,res)=>{
+ try{
+  const {radicado}=req.params
+
+  const q=await db.query(`
+   SELECT
+    dv.version,
+    dv.created_at,
+    a.hash_sha256,
+    COUNT(*) OVER (PARTITION BY a.id) > 1 AS archivo_reutilizado
+   FROM documentos d
+   JOIN documento_versiones dv ON dv.documento_id=d.id
+   JOIN archivos a ON a.id=dv.archivo_id
+   WHERE d.radicado=$1
+   ORDER BY dv.version ASC
+  `,[radicado])
+
+  if(!q.rowCount) return res.sendStatus(404)
+
+  res.json({
+   radicado,
+   versiones:q.rows.map(v=>({
+    version:v.version,
+    fecha:v.created_at,
+    hash:v.hash_sha256,
+    archivo_reutilizado:v.archivo_reutilizado
+   }))
+  })
  }catch(e){
   console.error(e)
   res.status(500).send(e.message)
@@ -184,9 +207,7 @@ app.get('/verificar/:radicado',async(req,res)=>{
 
  if(!q.rowCount) return res.json({valido:false})
 
- const stream=await minio.getObject(
-  process.env.MINIO_BUCKET,q.rows[0].minio_key
- )
+ const stream=await minio.getObject(process.env.MINIO_BUCKET,q.rows[0].minio_key)
 
  const h=crypto.createHash('sha256')
  await new Promise((ok,fail)=>{
@@ -200,7 +221,7 @@ app.get('/verificar/:radicado',async(req,res)=>{
   radicado:q.rows[0].radicado,
   nombre:q.rows[0].nombre_documento,
   version:q.rows[0].version,
-  integridad:h.digest('hex')===q.rows[0].hash_sha256?"OK":"ERROR",
+  integridad:h.digest('hex')===q.rows[0].hash_sha256?'OK':'ERROR',
   descarga:`/documentos/${q.rows[0].radicado}/download`
  })
 })
