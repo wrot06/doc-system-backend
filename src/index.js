@@ -231,3 +231,5 @@ app.get('/verificar/:radicado',async(req,res)=>{
 app.listen(process.env.PORT,()=>{
  console.log('API lista en puerto',process.env.PORT)
 })
+
+app.use('/ui',require('express').static('ui'))
