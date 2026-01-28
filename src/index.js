@@ -141,10 +141,11 @@ app.get('/documentos/:radicado/versiones',async(req,res)=>{
 
   const q=await db.query(`
    SELECT
-    dv.version,
-    dv.created_at,
-    a.hash_sha256,
-    COUNT(*) OVER (PARTITION BY a.id) > 1 AS archivo_reutilizado
+   dv.version,
+   dv.created_at,
+   a.hash_sha256,
+   a.minio_key,
+   COUNT(*) OVER (PARTITION BY a.id) > 1 AS archivo_reutilizado
    FROM documentos d
    JOIN documento_versiones dv ON dv.documento_id=d.id
    JOIN archivos a ON a.id=dv.archivo_id
@@ -156,12 +157,13 @@ app.get('/documentos/:radicado/versiones',async(req,res)=>{
 
   res.json({
    radicado,
-   versiones:q.rows.map(v=>({
-    version:v.version,
-    fecha:v.created_at,
-    hash:v.hash_sha256,
-    archivo_reutilizado:v.archivo_reutilizado
-   }))
+      versiones:q.rows.map(v=>({
+      version:v.version,
+      fecha:v.created_at,
+      hash:v.hash_sha256,
+      archivo_reutilizado:v.archivo_reutilizado,
+      objeto_fisico:v.minio_key
+      }))
   })
  }catch(e){
   console.error(e)
