@@ -454,7 +454,8 @@ app.put('/ingesta/:id',async(req,res)=>{
   await db.query(`
    UPDATE ingesta_documentos
    SET tipo_documental=$1,
-       descripcion=$2
+      descripcion=$2,
+      estado='TRATADO'
    WHERE id=$3
   `,[tipo_documental,descripcion,req.params.id])
 
@@ -464,6 +465,66 @@ app.put('/ingesta/:id',async(req,res)=>{
   res.status(500).send(e.message)
  }
 })
+
+/* ===============================
+   VER DOCUMENTO ORIGINAL (DUPLICADO)
+================================ */
+app.get('/archivos/original/:sha256',async(req,res)=>{
+ try{
+  const q=await db.query(
+   'SELECT minio_key FROM archivos WHERE hash_sha256=$1',
+   [req.params.sha256]
+  )
+  if(!q.rowCount) return res.sendStatus(404)
+
+  const stream=await minio.getObject(
+   process.env.MINIO_BUCKET,
+   q.rows[0].minio_key
+  )
+
+  res.setHeader('Content-Type','application/pdf')
+  res.setHeader('Content-Disposition','inline')
+  stream.pipe(res)
+
+ }catch(e){
+  console.error(e)
+  res.status(500).send(e.message)
+ }
+})
+
+
+/* ===============================
+   LISTAR DOCUMENTOS OFICIALES
+================================ */
+app.get('/documentos',async(req,res)=>{
+ try{
+  const q=await db.query(`
+   SELECT
+    d.id,
+    d.radicado,
+    d.nombre_documento,
+    d.tipo_documental,
+    d.descripcion,
+    d.created_at,
+    dv.version
+   FROM documentos d
+   JOIN documento_versiones dv
+     ON dv.documento_id=d.id
+   WHERE dv.version=(
+     SELECT MAX(version)
+     FROM documento_versiones
+     WHERE documento_id=d.id
+   )
+   ORDER BY d.created_at DESC
+  `)
+
+  res.json(q.rows)
+ }catch(e){
+  console.error(e)
+  res.status(500).send(e.message)
+ }
+})
+
 
 
 app.listen(process.env.PORT,()=>{

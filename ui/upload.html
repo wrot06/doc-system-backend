@@ -45,7 +45,7 @@ th{background:#eee}
    <th>SHA-256</th>
    <th>Páginas</th>
    <th>Estado</th>
-   <th>Error</th>
+   <th>Ver Original</th>
   </tr>
  </thead>
  <tbody></tbody>
@@ -93,18 +93,34 @@ btn.onclick=async()=>{
  data.resultados.forEach(r=>{
   const tr=document.createElement('tr')
   tr.className=r.estado
-  tr.innerHTML=`
+   let accion=''
+
+   if(r.estado==='DUPLICADO' && r.sha256){
+   accion=`<button onclick="verOriginal('${r.sha256}')">
+            Ver original
+            </button>`
+   }else if(r.estado==='ERROR'){
+   accion=r.error||''
+   }
+
+   tr.innerHTML=`
    <td>${r.archivo}</td>
    <td>${r.sha256||''}</td>
    <td>${r.paginas||''}</td>
    <td>${r.estado}</td>
-   <td>${r.error||''}</td>
-  `
+   <td>${accion}</td>
+   `
+
   tbody.appendChild(tr)
  })
 
  
 }
+
+function verOriginal(sha256){
+ window.open(`/archivos/original/${sha256}`,'_blank')
+}
+
 </script>
 
 </body>

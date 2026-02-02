@@ -70,7 +70,14 @@ async function cargarBatch(){
  const res=await fetch(`/ingesta/batch/${batch}`)
  if(!res.ok) return alert('Batch no encontrado')
 
- documentos=await res.json()
+ const data=await res.json()
+
+ // 🔒 FILTRO DEFINITIVO: solo NUEVO real
+ documentos=data.filter(d=>{
+  const estado=(d.estado||'').trim().toUpperCase()
+  return estado==='NUEVO'
+ })
+
  const ul=document.getElementById('archivos')
  ul.innerHTML=''
 
@@ -80,7 +87,16 @@ async function cargarBatch(){
   li.onclick=()=>seleccionar(d,li)
   ul.appendChild(li)
  })
+
+ // si no hay pendientes
+ if(!documentos.length){
+  document.getElementById('nombreArchivo').innerText='No hay documentos pendientes'
+  document.getElementById('visor').src=''
+  document.getElementById('visor').style.display='none'
+ }
 }
+
+
 
 function seleccionar(doc,li){
  document.querySelectorAll('#lista li')
@@ -123,12 +139,27 @@ async function guardar(){
   })
  })
 
+
 if(res.ok){
  alert('Tratamiento guardado')
- cargarBatch()
+
+ actual=null
+ documentos=[]
+ document.getElementById('archivos').innerHTML=''
+ document.getElementById('nombreArchivo').innerText='Seleccione un documento'
+ document.getElementById('tipo').value=''
+ document.getElementById('descripcion').value=''
+ document.getElementById('visor').src=''
+ document.getElementById('visor').style.display='none'
+
+ await cargarBatch()
 }else{
  alert('Error al guardar')
 }
+
+
+
+
 
 }
 </script>

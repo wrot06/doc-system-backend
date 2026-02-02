@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Documentos del sistema</title>
+<style>
+body{font-family:Arial;margin:20px}
+h1{margin-bottom:10px}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #ccc;padding:6px;font-size:14px}
+th{background:#eee}
+button{cursor:pointer}
+</style>
+</head>
+<body>
+
+<h1>Documentos del sistema</h1>
+
+<table>
+ <thead>
+  <tr>
+   <th>Radicado</th>
+   <th>Nombre</th>
+   <th>Tipo</th>
+   <th>Descripción</th>
+   <th>Versión</th>
+   <th>Fecha</th>
+   <th>Acción</th>
+  </tr>
+ </thead>
+ <tbody id="tbody"></tbody>
+</table>
+
+<script>
+async function cargar(){
+ const res=await fetch('/documentos')
+ const data=await res.json()
+ const tbody=document.getElementById('tbody')
+ tbody.innerHTML=''
+
+ data.forEach(d=>{
+  const tr=document.createElement('tr')
+  tr.innerHTML=`
+   <td>${d.radicado}</td>
+   <td>${d.nombre_documento}</td>
+   <td>${d.tipo_documental||''}</td>
+   <td>${d.descripcion||''}</td>
+   <td>${d.version}</td>
+   <td>${new Date(d.created_at).toLocaleString()}</td>
+   <td>
+    <button onclick="ver('${d.radicado}')">Ver</button>
+   </td>
+  `
+  tbody.appendChild(tr)
+ })
+}
+
+function ver(radicado){
+ window.open(`/documentos/${radicado}/download`,'_blank')
+}
+
+cargar()
+</script>
+
+</body>
+</html>
