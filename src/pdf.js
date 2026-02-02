@@ -1,5 +1,6 @@
 const {exec}=require('child_process')
 const fs=require('fs')
+const {PDFDocument}=require('pdf-lib')
 
 exports.toPDFA=(buffer)=>new Promise((resolve,reject)=>{
  const inFile=`/tmp/in-${Date.now()}.pdf`
@@ -20,3 +21,10 @@ exports.toPDFA=(buffer)=>new Promise((resolve,reject)=>{
   resolve(out)
  })
 })
+
+exports.getPageCount=async(filePath)=>{
+ const data=fs.readFileSync(filePath)
+ const pdf=await PDFDocument.load(data,{ignoreEncryption:true})
+ return pdf.getPageCount()
+}
+
