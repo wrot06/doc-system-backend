@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Tratamiento archivístico</title>
+<style>
+body{font-family:Arial;margin:0}
+header{padding:10px;border-bottom:1px solid #ccc}
+main{display:flex;height:calc(100vh - 60px)}
+#lista{width:35%;border-right:1px solid #ccc;overflow:auto}
+#lista ul{list-style:none;padding:0;margin:0}
+#lista li{padding:10px;border-bottom:1px solid #eee;cursor:pointer}
+#lista li.active{background:#e7f7e7;font-weight:bold}
+#detalle{flex:1;display:flex;flex-direction:column}
+#preview{flex:1;border-bottom:1px solid #ccc}
+#preview iframe{width:100%;height:100%;border:0}
+#form{padding:10px}
+label{display:block;margin-top:10px}
+select,textarea{width:100%}
+button{margin-top:10px}
+</style>
+</head>
+
+<body>
+
+<header>
+ Batch ID:
+ <input id="batch" placeholder="ING-..." style="width:250px">
+ <button onclick="cargarBatch()">Cargar</button>
+</header>
+
+<main>
+ <section id="lista">
+  <ul id="archivos"></ul>
+ </section>
+
+ <section id="detalle">
+  <div id="preview">
+   <iframe id="visor"></iframe>
+  </div>
+
+  <div id="form">
+   <h3 id="nombreArchivo">Seleccione un documento</h3>
+
+   <label>Tipo documental</label>
+   <select id="tipo">
+    <option value="">-- Seleccione --</option>
+    <option>ACUERDO</option>
+    <option>ACTA</option>
+    <option>RESOLUCION</option>
+    <option>LISTADO</option>
+   </select>
+
+   <label>Descripción</label>
+   <textarea id="descripcion" rows="4"></textarea>
+
+   <button onclick="guardar()">Guardar tratamiento</button>
+  </div>
+ </section>
+</main>
+
+<script>
+let documentos=[]
+let actual=null
+
+async function cargarBatch(){
+ const batch=document.getElementById('batch').value
+ if(!batch) return alert('Batch requerido')
+
+ const res=await fetch(`/ingesta/batch/${batch}`)
+ if(!res.ok) return alert('Batch no encontrado')
+
+ const data=await res.json()
+
+ // 🔒 FILTRO DEFINITIVO: solo NUEVO real
+ documentos=data.filter(d=>{
+  const estado=(d.estado||'').trim().toUpperCase()
+  return estado==='NUEVO'
+ })
+
+ const ul=document.getElementById('archivos')
+ ul.innerHTML=''
+
+ documentos.forEach(d=>{
+  const li=document.createElement('li')
+  li.innerText=`${d.nombre_archivo} (${d.estado})`
+  li.onclick=()=>seleccionar(d,li)
+  ul.appendChild(li)
+ })
+
+ // si no hay pendientes
+ if(!documentos.length){
+  document.getElementById('nombreArchivo').innerText='No hay documentos pendientes'
+  document.getElementById('visor').src=''
+  document.getElementById('visor').style.display='none'
+ }
+}
+
+
+
+function seleccionar(doc,li){
+ document.querySelectorAll('#lista li')
+  .forEach(x=>x.classList.remove('active'))
+ li.classList.add('active')
+
+ actual=doc
+ document.getElementById('nombreArchivo').innerText=doc.nombre_archivo
+ document.getElementById('tipo').value=doc.tipo_documental||''
+ document.getElementById('descripcion').value=doc.descripcion||''
+
+ const visor=document.getElementById('visor')
+
+ if(doc.estado==='NUEVO' && doc.sha256){
+  visor.style.display='block'
+  if(!Number.isInteger(Number(doc.id))){
+    alert('ID inválido para vista previa')
+    return
+    }
+    visor.src = `/documentos/tmp/${Number(doc.id)}`
+
+ }else{
+  visor.src=''
+  visor.style.display='none'
+  alert('Este documento no tiene vista previa disponible')
+ }
+}
+
+
+async function guardar(){
+ if(!actual) return alert('Seleccione un documento')
+ if(actual.estado!=='NUEVO')
+  return alert('Documento no editable')
+
+ const tipo=document.getElementById('tipo').value
+ const desc=document.getElementById('descripcion').value
+ if(!tipo||!desc) return alert('Datos incompletos')
+
+ const res=await fetch(`/ingesta/${actual.id}`,{
+  method:'PUT',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({
+   tipo_documental:tipo,
+   descripcion:desc
+  })
+ })
+
+
+if(res.ok){
+ alert('Tratamiento guardado')
+
+ actual=null
+ documentos=[]
+ document.getElementById('archivos').innerHTML=''
+ document.getElementById('nombreArchivo').innerText='Seleccione un documento'
+ document.getElementById('tipo').value=''
+ document.getElementById('descripcion').value=''
+ document.getElementById('visor').src=''
+ document.getElementById('visor').style.display='none'
+
+ await cargarBatch()
+}else{
+ alert('Error al guardar')
+}
+
+
+
+
+
+}
+</script>
+
+</body>
+</html>

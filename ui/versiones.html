@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Historial de versiones</title>
+<style>
+ body{font-family:Arial,Helvetica,sans-serif}
+ table{border-collapse:collapse;width:100%}
+ th,td{border:1px solid #ccc;padding:6px 8px;font-size:14px}
+ th{background:#f2f2f2}
+ .yes{color:green;font-weight:bold}
+ .no{color:#c00;font-weight:bold}
+</style>
+</head>
+<body>
+
+<h2>Historial de versiones</h2>
+
+<label>Radicado:</label>
+<input id="radicado" placeholder="RAD-XXXXXXXX">
+<button onclick="cargar()">Cargar</button>
+
+<br><br>
+
+<table>
+<thead>
+<tr>
+ <th>Versión</th>
+ <th>Fecha</th>
+ <th>Hash</th>
+ <th>Reutilizado</th>
+ <th>Objeto físico</th>
+</tr>
+</thead>
+<tbody id="tabla"></tbody>
+</table>
+
+<script src="versiones.js"></script>
+</body>
+</html>
