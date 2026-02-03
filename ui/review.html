@@ -112,7 +112,12 @@ function seleccionar(doc,li){
 
  if(doc.estado==='NUEVO' && doc.sha256){
   visor.style.display='block'
-  visor.src=`/documentos/tmp/${doc.id}`
+  if(!Number.isInteger(Number(doc.id))){
+    alert('ID inválido para vista previa')
+    return
+    }
+    visor.src = `/documentos/tmp/${Number(doc.id)}`
+
  }else{
   visor.src=''
   visor.style.display='none'

@@ -82,7 +82,7 @@ btn.onclick=async()=>{
  files.forEach(f=>fd.append('files',f))
  tbody.innerHTML=''
 
- const res=await fetch('/ingesta/batch',{
+const res = await fetch('http://localhost:3000/ingesta/batch', {
   method:'POST',
   body:fd
  })

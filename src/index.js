@@ -214,160 +214,87 @@ app.get('/verificar/:radicado',async(req,res)=>{
 })
 
 /* ===============================
-   INGESTA MASIVA – PASO 1
+   TRATAMIENTO ARCHIVÍSTICO (PASO 2)
 ================================ */
-app.post('/ingesta/batch',async(req,res)=>{
- const bb=Busboy({headers:req.headers})
- const resultados=[]
- const tareas=[]
- const batchId=`ING-${Date.now()}`
- const usuarioId=1
-
- const u=await db.query(
-  'SELECT dependencia_id FROM usuarios WHERE id=$1',[usuarioId]
- )
- const dependenciaId=u.rows[0].dependencia_id
-
- bb.on('file',(_,file,info)=>{   
-   const nombreArchivo=Buffer .from(info.filename,'latin1') .toString('utf8')
-
-  tareas.push(new Promise(ok=>{
-   const hash=crypto.createHash('sha256')
-   const tmp=`/tmp/${Date.now()}-${nombreArchivo}`
-   const ws=fs.createWriteStream(tmp)
-   file.on('data',d=>hash.update(d))
-   file.pipe(ws)
-
-   ws.on('close',async()=>{
-   try{
-   const sha256 = hash.digest('hex')
-   const paginas = await getPageCount(tmp)
-
-   // 1️⃣ PREGUNTAR PRIMERO
-   const dup = await db.query(
-   'SELECT 1 FROM archivos WHERE hash_sha256=$1 LIMIT 1',[sha256]
-   )
-
-   const estado = dup.rowCount ? 'DUPLICADO' : 'NUEVO'
-
-   // 2️⃣ SOLO SI ES NUEVO, GUARDAR EN MINIO / ARCHIVOS
-   if(estado === 'NUEVO'){
-   await obtenerArchivo(fs.readFileSync(tmp))
-   }
-
-     await db.query(`
-      INSERT INTO ingesta_documentos
-      (batch_id,nombre_archivo,sha256,paginas,estado,usuario_id,dependencia_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7)
-     `,[batchId,nombreArchivo,sha256,paginas,estado,usuarioId,dependenciaId])
-
-     resultados.push({archivo:nombreArchivo,sha256,paginas,estado})
-    }catch(e){
-     await db.query(`
-      INSERT INTO ingesta_documentos
-      (batch_id,nombre_archivo,estado,error,usuario_id,dependencia_id)
-      VALUES($1,$2,'ERROR',$3,$4,$5)
-     `,[batchId,nombreArchivo,e.message,usuarioId,dependenciaId])
-
-     resultados.push({archivo:nombreArchivo,estado:'ERROR',error:e.message})
-    }
-    ok()
-   })
-  }))
- })
-
- bb.on('close',async()=>{
-  await Promise.all(tareas)
-  res.json({batch_id:batchId,resultados})
- })
-
- req.pipe(bb)
-})
-
-app.post('/ingesta/confirmar/:batch',async(req,res)=>{
- const client=await db.connect()
+app.put('/ingesta/:id',async(req,res)=>{
  try{
-  await client.query('BEGIN')
+  const id=Number(req.params.id)
+  const {tipo_documental,descripcion}=req.body
+  if(!id||!tipo_documental||!descripcion)
+   return res.status(400).send('Datos incompletos')
 
-  const q=await client.query(`
-   SELECT *
+  const q=await db.query(`
+   SELECT
+   nombre_archivo,
+   minio_tmp_key,
+   estado,
+   usuario_id,
+   dependencia_id
    FROM ingesta_documentos
-   WHERE batch_id=$1
-   AND estado='NUEVO'
-   AND tipo_documental IS NOT NULL
-   AND descripcion IS NOT NULL
-   FOR UPDATE
-  `,[req.params.batch])
+   WHERE id=$1
+  `,[id])
 
-  if(!q.rowCount){
-   await client.query('ROLLBACK')
-   return res.status(409).send('Nada para confirmar')
-  }
+  if(!q.rowCount)
+   return res.status(404).send('Documento no existe')
 
-  const confirmados=[]
+  if(q.rows[0].estado!=='NUEVO')
+   return res.status(409).send('Documento no editable')
 
-   for(const r of q.rows){
+  const stream=await minio.getObject(
+   process.env.MINIO_BUCKET_TMP,
+   q.rows[0].minio_tmp_key
+  )
 
-   const a=await client.query(
-   'SELECT minio_key FROM archivos WHERE hash_sha256=$1',
-   [r.sha256]
-   )
-   const stream=await minio.getObject(process.env.MINIO_BUCKET,a.rows[0].minio_key)
-   const chunks=[]
-   for await(const c of stream) chunks.push(c)
-   const originalBuffer=Buffer.concat(chunks)
+  const chunks=[]
+  for await(const c of stream) chunks.push(c)
+  const buffer=Buffer.concat(chunks)
 
-   const radicado=`RAD-${Date.now()}-${r.id}`
+  const {id:archivoId}=await obtenerArchivo(buffer)
 
-   const {buffer}=await prepararPdfOficial(originalBuffer,{
-   radicado,
-   tipo:r.tipo_documental,
-   descripcion:r.descripcion
-   })
+  const radicado=`RAD-${Date.now()}`
 
-   const arch=await obtenerArchivo(buffer)
-
-   const d=await client.query(`
+   const d=await db.query(`
    INSERT INTO documentos
-   (radicado,nombre_documento,usuario_id,dependencia_id,
-      tipo_documental,descripcion,created_at)
+   (radicado,nombre_documento,tipo_documental,descripcion,usuario_id,dependencia_id,created_at)
    VALUES($1,$2,$3,$4,$5,$6,now())
    RETURNING id
    `,[
    radicado,
-   r.nombre_archivo,
-   r.usuario_id,
-   r.dependencia_id,
-   r.tipo_documental,
-   r.descripcion
+   q.rows[0].nombre_archivo,
+   tipo_documental,
+   descripcion,
+   q.rows[0].usuario_id,
+   q.rows[0].dependencia_id
    ])
 
-   await client.query(`
+
+  await db.query(`
    INSERT INTO documento_versiones
-   (documento_id,archivo_id,version,paginas)
-   VALUES($1,$2,1,$3)
-   `,[d.rows[0].id,arch.id,r.paginas])
+   (documento_id,archivo_id,version)
+   VALUES($1,$2,1)
+  `,[d.rows[0].id,archivoId])
 
-   await client.query(
-   'UPDATE ingesta_documentos SET estado=$1 WHERE id=$2',
-   ['CONFIRMADO',r.id]
-   )
+  await insertQR(
+   buffer,
+   radicado,
+   `http://localhost:3000/verificar/${radicado}`
+  )
 
-   confirmados.push({id:r.id,radicado})
-   }
+  await db.query(`
+   UPDATE ingesta_documentos
+   SET estado='OFICIALIZADO'
+   WHERE id=$1
+  `,[id])
 
-
-  await client.query('COMMIT')
-  res.json({batch:req.params.batch,confirmados})
-
+  res.json({ok:true,radicado})
  }catch(e){
-  await client.query('ROLLBACK')
   console.error(e)
   res.status(500).send(e.message)
- }finally{
-  client.release()
  }
 })
+
+
+
 
 /* ===============================
    LISTAR INGESTA POR BATCH (PASO 3 UI)
@@ -398,32 +325,24 @@ app.get('/ingesta/batch/:batch',async(req,res)=>{
 })
 
 /* ===============================
-   VISTA PREVIA PDF (INGESTA)
+   VISTA PREVIA PDF (INGESTA) — CORRECTA
 ================================ */
 app.get('/documentos/tmp/:id',async(req,res)=>{
  try{
   const q=await db.query(`
-   SELECT sha256,estado
+   SELECT minio_tmp_key,estado
    FROM ingesta_documentos
    WHERE id=$1
-  `,[req.params.id])
+  `,[Number(req.params.id)])
 
   if(!q.rowCount) return res.sendStatus(404)
 
-  // 🔒 Regla: solo NUEVO tiene vista previa
-  if(q.rows[0].estado!=='NUEVO' || !q.rows[0].sha256)
+  if(q.rows[0].estado!=='NUEVO')
    return res.sendStatus(404)
 
-  const a=await db.query(
-   'SELECT minio_key FROM archivos WHERE hash_sha256=$1',
-   [q.rows[0].sha256]
-  )
-
-  if(!a.rowCount) return res.sendStatus(404)
-
   const stream=await minio.getObject(
-   process.env.MINIO_BUCKET,
-   a.rows[0].minio_key
+   process.env.MINIO_BUCKET_TMP,
+   q.rows[0].minio_tmp_key
   )
 
   res.setHeader('Content-Type','application/pdf')
@@ -436,50 +355,23 @@ app.get('/documentos/tmp/:id',async(req,res)=>{
  }
 })
 
-/* ===============================
-   TRATAMIENTO ARCHIVÍSTICO (UI)
-================================ */
-app.put('/ingesta/:id',async(req,res)=>{
- try{
-  const {tipo_documental,descripcion}=req.body
-  if(!tipo_documental||!descripcion)
-   return res.status(400).send('Datos incompletos')
 
-  const q=await db.query(
-   'SELECT * FROM ingesta_documentos WHERE id=$1 AND estado=$2',
-   [req.params.id,'NUEVO']
-  )
-  if(!q.rowCount) return res.sendStatus(404)
 
-  await db.query(`
-   UPDATE ingesta_documentos
-   SET tipo_documental=$1,
-      descripcion=$2,
-      estado='TRATADO'
-   WHERE id=$3
-  `,[tipo_documental,descripcion,req.params.id])
-
-  res.json({ok:true})
- }catch(e){
-  console.error(e)
-  res.status(500).send(e.message)
- }
-})
 
 /* ===============================
    VER DOCUMENTO ORIGINAL (DUPLICADO)
 ================================ */
-app.get('/archivos/original/:sha256',async(req,res)=>{
+app.get('/ingesta/tmp/:id',async(req,res)=>{
  try{
   const q=await db.query(
-   'SELECT minio_key FROM archivos WHERE hash_sha256=$1',
-   [req.params.sha256]
+   'SELECT minio_tmp_key FROM ingesta_documentos WHERE id=$1',
+   [req.params.id]
   )
   if(!q.rowCount) return res.sendStatus(404)
 
   const stream=await minio.getObject(
-   process.env.MINIO_BUCKET,
-   q.rows[0].minio_key
+   process.env.MINIO_BUCKET_TMP,
+   q.rows[0].minio_tmp_key
   )
 
   res.setHeader('Content-Type','application/pdf')
@@ -491,6 +383,7 @@ app.get('/archivos/original/:sha256',async(req,res)=>{
   res.status(500).send(e.message)
  }
 })
+
 
 
 /* ===============================
@@ -524,6 +417,107 @@ app.get('/documentos',async(req,res)=>{
   res.status(500).send(e.message)
  }
 })
+
+
+/* ===============================
+   INGESTA MASIVA – PASO 1 (UPLOAD)
+================================ */
+app.post('/ingesta/batch',async(req,res)=>{
+ const bb=Busboy({headers:req.headers})
+ const resultados=[]
+ const tareas=[]
+ const batchId=`ING-${Date.now()}`
+ const usuarioId=1
+
+ const u=await db.query(
+  'SELECT dependencia_id FROM usuarios WHERE id=$1',
+  [usuarioId]
+ )
+ const dependenciaId=u.rows[0].dependencia_id
+
+ bb.on('file',(_,file,info)=>{
+  const nombreArchivo=Buffer
+   .from(info.filename,'latin1')
+   .toString('utf8')
+
+  tareas.push(new Promise(ok=>{
+   const hash=crypto.createHash('sha256')
+   const tmp=`/tmp/${Date.now()}-${nombreArchivo}`
+   const ws=fs.createWriteStream(tmp)
+
+   file.on('data',d=>hash.update(d))
+   file.pipe(ws)
+
+   ws.on('close',async()=>{
+    try{
+     const sha256=hash.digest('hex')
+     const paginas=await getPageCount(tmp)
+
+     // 🔴 DETECCIÓN DE DUPLICADO OFICIAL
+     const dup=await db.query(
+      'SELECT id FROM archivos WHERE hash_sha256=$1',
+      [sha256]
+     )
+
+     const estado=dup.rowCount?'DUPLICADO':'NUEVO'
+
+     const tmpKey=`ingesta/${batchId}/${Date.now()}-${nombreArchivo}`
+
+     await minio.putObject(
+      process.env.MINIO_BUCKET_TMP,
+      tmpKey,
+      fs.readFileSync(tmp)
+     )
+
+     await db.query(`
+      INSERT INTO ingesta_documentos
+      (batch_id,nombre_archivo,sha256,paginas,estado,
+       usuario_id,dependencia_id,minio_tmp_key)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+     `,[
+      batchId,
+      nombreArchivo,
+      sha256,
+      paginas,
+      estado,
+      usuarioId,
+      dependenciaId,
+      tmpKey
+     ])
+
+     resultados.push({
+      archivo:nombreArchivo,
+      sha256,
+      paginas,
+      estado
+     })
+    }catch(e){
+     await db.query(`
+      INSERT INTO ingesta_documentos
+      (batch_id,nombre_archivo,estado,error,
+       usuario_id,dependencia_id)
+      VALUES($1,$2,'ERROR',$3,$4,$5)
+     `,[batchId,nombreArchivo,e.message,usuarioId,dependenciaId])
+
+     resultados.push({
+      archivo:nombreArchivo,
+      estado:'ERROR',
+      error:e.message
+     })
+    }
+    ok()
+   })
+  }))
+ })
+
+ bb.on('close',async()=>{
+  await Promise.all(tareas)
+  res.json({batch_id:batchId,resultados})
+ })
+
+ req.pipe(bb)
+})
+
 
 
 
