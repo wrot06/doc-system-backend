@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="favicon.png">
+<title>Inicio de sesión</title>
+<style>
+body{margin:0;font-family:Arial;background:#f2f4f7;height:100vh;display:flex;align-items:center;justify-content:center}
+.box{background:#fff;padding:30px;width:320px;border-radius:6px;box-shadow:0 10px 30px rgba(0,0,0,.1)}
+h1{margin:0 0 20px;font-size:20px;text-align:center}
+input{width:100%;padding:10px;margin-bottom:12px;border:1px solid #ccc;border-radius:4px}
+button{width:100%;padding:10px;background:#0057b8;color:#fff;border:none;border-radius:4px;cursor:pointer}
+button:disabled{background:#999}
+.error{color:#c00;font-size:13px;margin-top:10px;text-align:center}
+</style>
+</head>
+<body>
+
+<div class="box">
+  <h1>Sistema Archivístico</h1>
+  <form id="loginForm">
+    <input id="username" placeholder="Usuario" required>
+    <input id="password" type="password" placeholder="Contraseña" required>
+    <button id="btn">Entrar</button>
+    <div id="error" class="error"></div>
+  </form>
+</div>
+
+<script>
+const form=document.getElementById('loginForm')
+const err=document.getElementById('error')
+const btn=document.getElementById('btn')
+
+form.onsubmit=async e=>{
+  e.preventDefault()
+  err.textContent=''
+  btn.disabled=true
+  try{
+    const r=await fetch('/auth/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        username:username.value.trim(),
+        password:password.value
+      })
+    })
+    const d=await r.json()
+    if(!r.ok)throw d
+    localStorage.setItem('token',d.token)
+    location.href='app.html'
+  }catch(e){
+    err.textContent=e.error||'Error de autenticación'
+    btn.disabled=false
+  }
+}
+</script>
+
+</body>
+</html>

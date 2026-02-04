@@ -23,6 +23,9 @@ app.use(express.static(path.join(__dirname,'../ui'),{
 
 const upload=multer()
 
+const authRoutes=require('./routes/auth')
+app.use('/auth',authRoutes)
+
 
 
 /* ===============================
@@ -519,6 +522,20 @@ app.post('/ingesta/batch',async(req,res)=>{
 })
 
 
+
+/* ===============================
+   LOGIN Y OBTENER INFO USUARIO
+================================ */
+const jwt=require('jsonwebtoken')
+app.get('/me',(req,res)=>{
+ const h=req.headers.authorization
+ if(!h)return res.sendStatus(401)
+ try{
+  res.json(jwt.verify(h.split(' ')[1],process.env.JWT_SECRET))
+ }catch{
+  res.sendStatus(401)
+ }
+})
 
 
 app.listen(process.env.PORT,()=>{
