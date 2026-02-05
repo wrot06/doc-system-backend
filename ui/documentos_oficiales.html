@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <link rel="icon" href="favicon.png">
+    <title>Documentos oficiales</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .btn-eliminar {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-left: 8px;
+        }
+
+        .btn-eliminar:hover {
+            background-color: #c82333;
+        }
+    </style>
+</head>
+
+<body>
+    <h2 id="loading">Cargando sesión…</h2>
+
+    <div id="content" style="display:none">
+        <h2>Documentos oficiales</h2>
+
+        <table border="1" width="100%" id="tabla">
+            <thead>
+                <tr>
+                    <th>Radicado</th>
+                    <th>Nombre</th>
+                    <th>Tipo</th>
+                    <th>Versión</th>
+                    <th>Páginas</th>
+                    <th>Fecha</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script src="common.js"></script>
+    <script src="js/documentos_oficiales.js"></script>
+</body>
+
+</html>

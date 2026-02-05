@@ -1,129 +1,173 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-<meta charset="UTF-8">
-<link rel="icon" href="favicon.png">
 
-<title>Ingesta masiva de documentos</title>
-<style>
-body{font-family:Arial,Helvetica,sans-serif;margin:20px}
-h1{margin-bottom:10px}
-#drop{
- border:2px dashed #888;
- padding:30px;
- text-align:center;
- color:#666;
- cursor:pointer;
-}
-#drop.hover{border-color:#000;color:#000}
-table{width:100%;border-collapse:collapse;margin-top:20px}
-th,td{border:1px solid #ccc;padding:6px;font-size:14px}
-th{background:#eee}
-.NUEVO{background:#e7f7e7}
-.DUPLICADO{background:#fff3cd}
-.ERROR{background:#f8d7da}
-</style>
+<head>
+   <meta charset="UTF-8">
+   <link rel="icon" href="favicon.png">
+
+   <title>Ingesta masiva de documentos</title>
+   <link rel="stylesheet" href="styles.css">
+   <style>
+      body {
+         font-family: Arial, Helvetica, sans-serif;
+         margin: 20px
+      }
+
+      h1 {
+         margin-bottom: 10px
+      }
+
+      #drop {
+         border: 2px dashed #888;
+         padding: 30px;
+         text-align: center;
+         color: #666;
+         cursor: pointer;
+      }
+
+      #drop.hover {
+         border-color: #000;
+         color: #000
+      }
+
+      table {
+         width: 100%;
+         border-collapse: collapse;
+         margin-top: 20px
+      }
+
+      th,
+      td {
+         border: 1px solid #ccc;
+         padding: 6px;
+         font-size: 14px
+      }
+
+      th {
+         background: #eee
+      }
+
+      .NUEVO {
+         background: #e7f7e7
+      }
+
+      .DUPLICADO {
+         background: #fff3cd
+      }
+
+      .ERROR {
+         background: #f8d7da
+      }
+   </style>
 </head>
+
 <body>
 
-<h1>Ingesta masiva de documentos (PDF)</h1>
+   <h1>Ingesta masiva de documentos (PDF)</h1>
 
-<div id="drop">
- Arrastra aquí los PDFs o haz clic para seleccionarlos
- <input type="file" id="fileInput" multiple accept="application/pdf" hidden>
-</div>
+   <div id="drop">
+      Arrastra aquí los PDFs o haz clic para seleccionarlos
+      <input type="file" id="fileInput" multiple accept="application/pdf" hidden>
+   </div>
 
-<button id="uploadBtn">Subir documentos</button>
-<p id="batchInfo" style="font-weight:bold"></p>
-<p id="batchInfo" onclick="navigator.clipboard.writeText(this.innerText)"
-   style="cursor:pointer;font-weight:bold">
-</p>
+   <button id="uploadBtn">Subir documentos</button>
+   <p id="batchInfo" style="font-weight:bold"></p>
+   <p id="batchInfo" onclick="navigator.clipboard.writeText(this.innerText)" style="cursor:pointer;font-weight:bold">
+   </p>
 
 
-<table id="resultados">
- <thead>
-  <tr>
-   <th>Archivo</th>
-   <th>SHA-256</th>
-   <th>Páginas</th>
-   <th>Estado</th>
-   <th>Ver Original</th>
-  </tr>
- </thead>
- <tbody></tbody>
-</table>
+   <table id="resultados">
+      <thead>
+         <tr>
+            <th>Archivo</th>
+            <th>SHA-256</th>
+            <th>Páginas</th>
+            <th>Estado</th>
+            <th>Ver Original</th>
+         </tr>
+      </thead>
+      <tbody></tbody>
+   </table>
 
-<script>
-const drop=document.getElementById('drop')
-const input=document.getElementById('fileInput')
-const btn=document.getElementById('uploadBtn')
-const tbody=document.querySelector('#resultados tbody')
-let files=[]
+   <script>
+      const drop = document.getElementById('drop')
+      const input = document.getElementById('fileInput')
+      const btn = document.getElementById('uploadBtn')
+      const tbody = document.querySelector('#resultados tbody')
+      let files = []
 
-drop.onclick=()=>input.click()
+      drop.onclick = () => input.click()
 
-drop.ondragover=e=>{
- e.preventDefault()
- drop.classList.add('hover')
-}
-drop.ondragleave=()=>drop.classList.remove('hover')
-drop.ondrop=e=>{
- e.preventDefault()
- drop.classList.remove('hover')
- files=[...e.dataTransfer.files]
-}
+      drop.ondragover = e => {
+         e.preventDefault()
+         drop.classList.add('hover')
+      }
+      drop.ondragleave = () => drop.classList.remove('hover')
+      drop.ondrop = e => {
+         e.preventDefault()
+         drop.classList.remove('hover')
+         files = [...e.dataTransfer.files]
+      }
 
-input.onchange=e=>files=[...e.target.files]
+      input.onchange = e => files = [...e.target.files]
 
-btn.onclick=async()=>{
- if(!files.length){
-  alert('Seleccione archivos PDF')
-  return
- }
- const fd=new FormData()
- files.forEach(f=>fd.append('files',f))
- tbody.innerHTML=''
+      btn.onclick = async () => {
+         if (!files.length) {
+            alert('Seleccione archivos PDF')
+            return
+         }
+         const fd = new FormData()
+         files.forEach(f => fd.append('files', f))
+         tbody.innerHTML = ''
 
-const res = await fetch('http://localhost:3000/ingesta/batch', {
-  method:'POST',
-  body:fd
- })
- const data=await res.json()
+         const res = await fetch('http://localhost:3000/ingesta/batch', {
+            method: 'POST',
+            body: fd
+         })
+         const data = await res.json()
 
- document.getElementById('batchInfo').innerText = `Batch creado: ${data.batch_id}`
+         document.getElementById('batchInfo').innerText = `Batch creado: ${data.batch_id}`
 
- data.resultados.forEach(r=>{
-  const tr=document.createElement('tr')
-  tr.className=r.estado
-   let accion=''
+         const workBtn = document.createElement('button');
+         workBtn.innerText = 'Trabajar con los documentos';
+         workBtn.onclick = () => location.href = `review.html?batch_id=${data.batch_id}`;
+         document.getElementById('batchInfo').appendChild(document.createElement('br'));
+         document.getElementById('batchInfo').appendChild(workBtn);
 
-   if(r.estado==='DUPLICADO' && r.sha256){
-   accion=`<button onclick="verOriginal('${r.sha256}')">
+         data.resultados.forEach(r => {
+            const tr = document.createElement('tr')
+            tr.className = r.estado
+            let accion = ''
+
+            if (r.estado === 'DUPLICADO' && r.sha256) {
+               accion = `<button onclick="verOriginal('${r.sha256}')">
             Ver original
             </button>`
-   }else if(r.estado==='ERROR'){
-   accion=r.error||''
-   }
+            } else if (r.estado === 'ERROR') {
+               accion = r.error || ''
+            }
 
-   tr.innerHTML=`
+            tr.innerHTML = `
    <td>${r.archivo}</td>
-   <td>${r.sha256||''}</td>
-   <td>${r.paginas||''}</td>
+   <td>${r.sha256 || ''}</td>
+   <td>${r.paginas || ''}</td>
    <td>${r.estado}</td>
    <td>${accion}</td>
    `
 
-  tbody.appendChild(tr)
- })
+            tbody.appendChild(tr)
+         })
 
- 
-}
 
-function verOriginal(sha256){
- window.open(`/archivos/original/${sha256}`,'_blank')
-}
+      }
 
-</script>
+      function verOriginal(sha256) {
+         window.open(`/archivos/original/${sha256}`, '_blank')
+      }
 
+   </script>
+
+   <script src="common.js"></script>
 </body>
+
 </html>
