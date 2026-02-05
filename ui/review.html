@@ -1,174 +1,528 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="UTF-8">
-<link rel="icon" href="favicon.png">
-<title>Tratamiento archivístico</title>
-<style>
-body{font-family:Arial;margin:0}
-header{padding:10px;border-bottom:1px solid #ccc}
-main{display:flex;height:calc(100vh - 60px)}
-#lista{width:35%;border-right:1px solid #ccc;overflow:auto}
-#lista ul{list-style:none;padding:0;margin:0}
-#lista li{padding:10px;border-bottom:1px solid #eee;cursor:pointer}
-#lista li.active{background:#e7f7e7;font-weight:bold}
-#detalle{flex:1;display:flex;flex-direction:column}
-#preview{flex:1;border-bottom:1px solid #ccc}
-#preview iframe{width:100%;height:100%;border:0}
-#form{padding:10px}
-label{display:block;margin-top:10px}
-select,textarea{width:100%}
-button{margin-top:10px}
-</style>
+  <meta charset="UTF-8">
+  <link rel="icon" href="favicon.png">
+  <title>Tratamiento archivístico</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      font-family: Arial;
+      margin: 0
+    }
+
+    header {
+      padding: 10px;
+      border-bottom: 1px solid #ccc
+    }
+
+    main {
+      display: flex;
+      height: calc(100vh - 60px)
+    }
+
+    #lista {
+      width: 35%;
+      border-right: 1px solid #ccc;
+      overflow: auto
+    }
+
+    #lista ul {
+      list-style: none;
+      padding: 0;
+      margin: 0
+    }
+
+    #lista li {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer
+    }
+
+    #lista li.active {
+      background: #e7f7e7;
+      font-weight: bold
+    }
+
+    #detalle {
+      flex: 1;
+      display: flex;
+      flex-direction: column
+    }
+
+    #preview {
+      flex: 1;
+      border-bottom: 1px solid #ccc
+    }
+
+    #preview iframe {
+      width: 100%;
+      height: 100%;
+      border: 0
+    }
+
+    #form {
+      padding: 10px
+    }
+
+    label {
+      display: block;
+      margin-top: 10px
+    }
+
+    select,
+    textarea {
+      width: 100%
+    }
+
+    button {
+      margin-top: 10px
+    }
+
+    .tipos-documentales {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .tipo-option {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      border: 2px solid #ccc;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin: 0;
+    }
+
+    .tipo-option:hover {
+      border-color: #007bff;
+      background: #f0f7ff;
+    }
+
+    .tipo-option:has(input:checked) {
+      border-color: #28a745;
+      background: #e7f7e7;
+      font-weight: bold;
+    }
+
+    .tipo-option input[type="radio"] {
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    .label-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    #grabarBoton {
+      background: #ffffff;
+      border: 1px solid #ced4da;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 18px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      padding: 0;
+      margin-top: 0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      position: relative;
+    }
+
+    #grabarBoton:hover {
+      background: #f8f9fa;
+      border-color: #adb5bd;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    #grabarBoton:active {
+      transform: translateY(0);
+    }
+
+    #grabarBoton.grabando {
+      background: #ff4757;
+      color: white;
+      border-color: #ff4757;
+    }
+
+    /* Efecto de pulso */
+    #grabarBoton.grabando::after {
+      content: '';
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: rgba(255, 71, 87, 0.4);
+      animation: pulse-wave 1.5s infinite;
+      z-index: -1;
+    }
+
+    @keyframes pulse-wave {
+      0% {
+        transform: scale(1);
+        opacity: 1;
+      }
+
+      100% {
+        transform: scale(2);
+        opacity: 0;
+      }
+    }
+
+    #dictadoStatus {
+      font-size: 12px;
+      font-weight: 600;
+      color: #6c757d;
+      margin-left: 5px;
+      transition: all 0.3s;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    #dictadoStatus.escuchando {
+      color: #ff4757;
+    }
+  </style>
 </head>
 
 <body>
 
-<header>
- Batch ID:
- <input id="batch" placeholder="ING-..." style="width:250px">
- <button onclick="cargarBatch()">Cargar</button>
-</header>
+  <header>
+    Batch ID:
+    <input id="batch" placeholder="ING-..." style="width:250px">
+    <button onclick="cargarBatch()">Cargar</button>
+  </header>
 
-<main>
- <section id="lista">
-  <ul id="archivos"></ul>
- </section>
+  <main>
+    <section id="lista">
+      <ul id="archivos"></ul>
+    </section>
 
- <section id="detalle">
-  <div id="preview">
-   <iframe id="visor"></iframe>
-  </div>
+    <section id="detalle">
+      <div id="preview">
+        <iframe id="visor"></iframe>
+      </div>
 
-  <div id="form">
-   <h3 id="nombreArchivo">Seleccione un documento</h3>
+      <div id="form">
+        <h3 id="nombreArchivo">Seleccione un documento</h3>
 
-   <label>Tipo documental</label>
-   <select id="tipo">
-    <option value="">-- Seleccione --</option>
-    <option>ACUERDO</option>
-    <option>ACTA</option>
-    <option>RESOLUCION</option>
-    <option>LISTADO</option>
-   </select>
+        <label>Tipo documental <span style="color:red">*</span></label>
+        <div id="tipos-container" class="tipos-documentales">
+          <label class="tipo-option">
+            <input type="radio" name="tipo" value="ACUERDO"> ACUERDO
+          </label>
+          <label class="tipo-option">
+            <input type="radio" name="tipo" value="ACTA"> ACTA
+          </label>
+          <label class="tipo-option">
+            <input type="radio" name="tipo" value="RESOLUCION"> RESOLUCIÓN
+          </label>
+          <label class="tipo-option">
+            <input type="radio" name="tipo" value="LISTADO"> LISTADO
+          </label>
+        </div>
 
-   <label>Descripción</label>
-   <textarea id="descripcion" rows="4"></textarea>
+        <div class="label-header">
+          <label style="margin-top:0">Descripción <span style="color:red">*</span></label>
+          <button id="grabarBoton" title="Presione para grabar o mantenga F2/F9">🎤</button>
+          <span id="dictadoStatus">Pausado</span>
+        </div>
+        <textarea id="descripcion" rows="4"></textarea>
 
-   <button onclick="guardar()">Guardar tratamiento</button>
-  </div>
- </section>
-</main>
+        <button onclick="guardar()">Guardar tratamiento</button>
+      </div>
+    </section>
+  </main>
 
-<script>
-let documentos=[]
-let actual=null
+  <script>
+    let documentos = []
+    let actual = null
 
-async function cargarBatch(){
- const batch=document.getElementById('batch').value
- if(!batch) return alert('Batch requerido')
+    async function cargarBatch() {
+      const batch = document.getElementById('batch').value
+      if (!batch) return alert('Batch requerido')
 
- const res=await fetch(`/ingesta/batch/${batch}`)
- if(!res.ok) return alert('Batch no encontrado')
+      const res = await fetch(`/ingesta/batch/${batch}?estado=NUEVO`)
+      if (!res.ok) return alert('Batch no encontrado o sin documentos pendientes')
 
- const data=await res.json()
+      const data = await res.json()
 
- // 🔒 FILTRO DEFINITIVO: solo NUEVO real
- documentos=data.filter(d=>{
-  const estado=(d.estado||'').trim().toUpperCase()
-  return estado==='NUEVO'
- })
+      // La API ya devuelve solo NUEVO
+      documentos = data
 
- const ul=document.getElementById('archivos')
- ul.innerHTML=''
+      const ul = document.getElementById('archivos')
+      ul.innerHTML = ''
 
- documentos.forEach(d=>{
-  const li=document.createElement('li')
-  li.innerText=`${d.nombre_archivo} (${d.estado})`
-  li.onclick=()=>seleccionar(d,li)
-  ul.appendChild(li)
- })
+      documentos.forEach(d => {
+        const li = document.createElement('li')
+        li.innerText = `${d.nombre_archivo} (${d.estado})`
+        li.onclick = () => seleccionar(d, li)
+        ul.appendChild(li)
+      })
 
- // si no hay pendientes
- if(!documentos.length){
-  document.getElementById('nombreArchivo').innerText='No hay documentos pendientes'
-  document.getElementById('visor').src=''
-  document.getElementById('visor').style.display='none'
- }
-}
-
-
-
-function seleccionar(doc,li){
- document.querySelectorAll('#lista li')
-  .forEach(x=>x.classList.remove('active'))
- li.classList.add('active')
-
- actual=doc
- document.getElementById('nombreArchivo').innerText=doc.nombre_archivo
- document.getElementById('tipo').value=doc.tipo_documental||''
- document.getElementById('descripcion').value=doc.descripcion||''
-
- const visor=document.getElementById('visor')
-
- if(doc.estado==='NUEVO' && doc.sha256){
-  visor.style.display='block'
-  if(!Number.isInteger(Number(doc.id))){
-    alert('ID inválido para vista previa')
-    return
+      // si no hay pendientes
+      if (!documentos.length) {
+        document.getElementById('nombreArchivo').innerText = 'No hay documentos pendientes'
+        document.getElementById('visor').src = ''
+        document.getElementById('visor').style.display = 'none'
+      }
     }
-    visor.src = `/documentos/tmp/${Number(doc.id)}`
-
- }else{
-  visor.src=''
-  visor.style.display='none'
-  alert('Este documento no tiene vista previa disponible')
- }
-}
 
 
-async function guardar(){
- if(!actual) return alert('Seleccione un documento')
- if(actual.estado!=='NUEVO')
-  return alert('Documento no editable')
-
- const tipo=document.getElementById('tipo').value
- const desc=document.getElementById('descripcion').value
- if(!tipo||!desc) return alert('Datos incompletos')
-
- const res=await fetch(`/ingesta/${actual.id}`,{
-  method:'PUT',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({
-   tipo_documental:tipo,
-   descripcion:desc
-  })
- })
-
-
-if(res.ok){
- alert('Tratamiento guardado')
-
- actual=null
- documentos=[]
- document.getElementById('archivos').innerHTML=''
- document.getElementById('nombreArchivo').innerText='Seleccione un documento'
- document.getElementById('tipo').value=''
- document.getElementById('descripcion').value=''
- document.getElementById('visor').src=''
- document.getElementById('visor').style.display='none'
-
- await cargarBatch()
-}else{
- alert('Error al guardar')
-}
+    // Auto-load if batch_id is in URL
+    const params = new URLSearchParams(window.location.search);
+    const batchId = params.get('batch_id');
+    if (batchId) {
+      document.getElementById('batch').value = batchId;
+      cargarBatch();
+    }
 
 
 
+    function seleccionar(doc, li) {
+      document.querySelectorAll('#lista li')
+        .forEach(x => x.classList.remove('active'))
+      li.classList.add('active')
+
+      actual = doc
+      document.getElementById('nombreArchivo').innerText = doc.nombre_archivo
+
+      // Limpiar y seleccionar el radio button correspondiente
+      document.querySelectorAll('input[name="tipo"]').forEach(r => r.checked = false)
+      if (doc.tipo_documental) {
+        const radio = document.querySelector(`input[name="tipo"][value="${doc.tipo_documental}"]`)
+        if (radio) radio.checked = true
+      }
+      document.getElementById('descripcion').value = doc.descripcion || ''
+
+      const visor = document.getElementById('visor')
+
+      if (doc.estado === 'NUEVO' && doc.sha256) {
+        visor.style.display = 'block'
+        if (!Number.isInteger(Number(doc.id))) {
+          alert('ID inválido para vista previa')
+          return
+        }
+        visor.src = `/documentos/tmp/${Number(doc.id)}`
+
+      } else {
+        visor.src = ''
+        visor.style.display = 'none'
+        alert('Este documento no tiene vista previa disponible')
+      }
+    }
 
 
-}
-</script>
+    async function guardar() {
+      if (!actual) return alert('Seleccione un documento')
+      if (actual.estado !== 'NUEVO')
+        return alert('Documento no editable')
 
+      const tipoRadio = document.querySelector('input[name="tipo"]:checked')
+      const tipo = tipoRadio ? tipoRadio.value : ''
+      const desc = document.getElementById('descripcion').value
+
+      if (!tipo) return alert('Debe seleccionar un tipo documental')
+      if (!desc) return alert('Debe ingresar una descripción')
+
+      const res = await fetch(`/ingesta/${actual.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tipo_documental: tipo,
+          descripcion: desc
+        })
+      })
+
+
+      if (res.ok) {
+        alert('Tratamiento guardado')
+
+        actual = null
+        documentos = []
+        document.getElementById('archivos').innerHTML = ''
+        document.getElementById('nombreArchivo').innerText = 'Seleccione un documento'
+        document.querySelectorAll('input[name="tipo"]').forEach(r => r.checked = false)
+        document.getElementById('descripcion').value = ''
+        document.getElementById('visor').src = ''
+        document.getElementById('visor').style.display = 'none'
+
+        await cargarBatch()
+      } else {
+        alert('Error al guardar')
+      }
+    }
+
+    // ------- Voice to Text Logic -------
+    (function () {
+      let grabando = false;
+      let recognition = null;
+      window.textoFinal = '';
+      let lastFinal = '';
+
+      const btn = document.getElementById('grabarBoton');
+      const status = document.getElementById('dictadoStatus');
+      const ta = document.getElementById('descripcion');
+
+      function normalizarTexto(texto, quitarPuntuacion = false) {
+        if (!texto) return '';
+        let t = texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        if (quitarPuntuacion) t = t.replace(/[.,;:¡!¿?]/g, "");
+        return t.trim();
+      }
+
+      const tokenRegex = /([\w\u00C0-\u017F]+)([.,;:]*)/g;
+
+      function getMapaReemplazos() {
+        return (Array.isArray(window.REEMPLAZOS) ? window.REEMPLAZOS : []).reduce((m, [k, v]) => {
+          m.set(normalizarTexto(k), v);
+          return m;
+        }, new Map());
+      }
+
+      function aplicarReemplazos(texto) {
+        const mapa = getMapaReemplazos();
+        const regexR = Array.isArray(window.REGEX_REEMPLAZOS) ? window.REGEX_REEMPLAZOS : [];
+
+        return texto.replace(tokenRegex, (match, palabra, signo) => {
+          const clave = normalizarTexto(palabra);
+          if (mapa.has(clave)) return mapa.get(clave) + (signo || '');
+          for (const [re, val] of regexR) if (re.test(clave)) return val + (signo || '');
+          return palabra + (signo || '');
+        });
+      }
+
+      function updateUI(isGrabando, msg = '') {
+        grabando = isGrabando;
+        if (btn) {
+          btn.classList.toggle('grabando', isGrabando);
+          btn.title = isGrabando ? "Escuchando... clic para parar" : "Presione para grabar o mantenga F2/F9";
+        }
+        if (status) {
+          status.innerText = msg || (isGrabando ? "Escuchando..." : "Pausado");
+          status.classList.toggle('escuchando', isGrabando);
+        }
+      }
+
+      function iniciarReconocimiento() {
+        if (grabando) return;
+        if (!('webkitSpeechRecognition' in window)) {
+          alert("Su navegador no soporta dictado por voz. Use Chrome/Edge.");
+          return;
+        }
+
+        recognition = new webkitSpeechRecognition();
+        recognition.lang = 'es-CO';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        recognition.onstart = () => updateUI(true);
+
+        recognition.onerror = (event) => {
+          console.error("Error de dictado:", event.error);
+          let msg = "Error";
+          if (event.error === 'not-allowed') msg = "Micrófono bloqueado";
+          if (event.error === 'no-speech') msg = "No se detectó voz";
+          updateUI(false, msg);
+          detenerReconocimiento();
+        };
+
+        recognition.onresult = evt => {
+          let interim = '';
+          for (let i = evt.resultIndex; i < evt.results.length; i++) {
+            const r = evt.results[i];
+            const textoProcesado = aplicarReemplazos(r[0].transcript.trim());
+
+            if (r.isFinal) {
+              const plusNorm = normalizarTexto(textoProcesado, true);
+              const textoNormCompleto = normalizarTexto(window.textoFinal, true);
+              if (plusNorm && !textoNormCompleto.includes(plusNorm)) {
+                window.textoFinal += (window.textoFinal ? " " : "") + textoProcesado;
+              }
+            } else interim += textoProcesado + ' ';
+          }
+
+          if (ta) {
+            let valor = window.textoFinal;
+            if (interim) valor += (valor ? " " : "") + interim.trim();
+            ta.value = aplicarReemplazos(valor);
+            ta.scrollTop = ta.scrollHeight; // Auto scroll
+          }
+        };
+
+        recognition.onend = () => {
+          if (grabando) updateUI(false);
+          recognition = null;
+        };
+
+        if (ta) {
+          window.textoFinal = ta.value.trim();
+          ta.focus();
+        }
+
+        try { recognition.start(); } catch (e) { updateUI(false); }
+      }
+
+      function detenerReconocimiento() {
+        if (recognition) {
+          try { recognition.stop(); } catch (e) { recognition.abort(); }
+          recognition = null;
+        }
+        updateUI(false);
+      }
+
+      // Teclas rápidas
+      let teclaActiva = false;
+      window.addEventListener('keydown', e => {
+        if (e.repeat) return;
+        if ((e.key === 'F2' || e.key === 'F9')) {
+          const isInput = ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName);
+          if (!isInput || document.activeElement === ta) {
+            e.preventDefault();
+            teclaActiva = true;
+            iniciarReconocimiento();
+          }
+        }
+      });
+
+      window.addEventListener('keyup', e => {
+        if (e.key === 'F2' || e.key === 'F9') {
+          teclaActiva = false;
+          detenerReconocimiento();
+        }
+      });
+
+      // Click botón
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (grabando) detenerReconocimiento();
+          else iniciarReconocimiento();
+        });
+      }
+
+      // Sincronización manual
+      if (ta) {
+        ta.addEventListener('input', () => {
+          window.textoFinal = ta.value.trim() || '';
+        });
+      }
+    })();
+  </script>
+
+  <script src="js/reemplazos.js"></script>
+  <script src="common.js"></script>
 </body>
+
 </html>

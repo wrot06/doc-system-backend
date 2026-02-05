@@ -1,37 +1,77 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-<meta charset="utf-8">
-<title>App</title>
+  <meta charset="utf-8">
+  <link rel="icon" href="favicon.png">
+  <title>App</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
-<h2>Cargando sesión…</h2>
+  <div id="dashboard" style="display:none">
+    <h2 id="welcome-msg">Bienvenido</h2>
+    <button onclick="location.href='upload.html'">Subir documentos</button>
 
-<script>
-const token=localStorage.getItem('token')
-if(!token)location.href='login.html'
+    <h3>Batches Recientes</h3>
+    <table id="batches-table" style="width:100%; border-collapse: collapse; margin-top: 20px;">
+      <thead>
+        <tr style="background:#eee; text-align:left;">
+          <th style="padding:8px; border:1px solid #ccc;">Batch ID</th>
+          <th style="padding:8px; border:1px solid #ccc;">Total</th>
+          <th style="padding:8px; border:1px solid #ccc;">Pendientes</th>
+          <th style="padding:8px; border:1px solid #ccc;">Acción</th>
 
-fetch('/me',{headers:{Authorization:'Bearer '+token}})
-.then(r=>{
-  if(!r.ok)throw 0
-  return r.json()
-})
-.then(u=>{
-  document.body.innerHTML=
-    `<h2>Bienvenido</h2>
-     <p>Rol: ${u.rol}</p>
-     <p>Dependencia ID: ${u.dependencia_id}</p>
-     <button onclick="logout()">Cerrar sesión</button>`
-})
-.catch(()=>{
-  localStorage.removeItem('token')
-  location.href='login.html'
-})
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
-function logout(){
-  localStorage.removeItem('token')
-  location.href='login.html'
+  <h2 id="loading">Cargando sesión…</h2>
+
+  <script src="common.js"></script>
+  <script>
+    window.addEventListener('user-loaded', (e) => {
+      const u = e.detail;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('welcome-msg').innerText = `Bienvenido, ${u.nombre}`;
+
+      // Load Batches
+      fetch('/ingesta/batches')
+        .then(r => r.json())
+        .then(batches => {
+          const tbody = document.querySelector('#batches-table tbody');
+          tbody.innerHTML = '';
+          batches.forEach(b => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                    <td style="padding:8px; border:1px solid #ccc;">${b.batch_id}</td>
+                    <td style="padding:8px; border:1px solid #ccc;">${b.total}</td>
+                    <td style="padding:8px; border:1px solid #ccc;">${b.pendientes}</td>
+                    <td style="padding:8px;border:1px solid #ccc;">
+                      <button onclick="location.href='review.html?batch_id=${b.batch_id}'">Revisar</button>
+                      <button onclick="eliminarBatch('${b.batch_id}')">Eliminar</button>
+                    </td>
+                `;
+            tbody.appendChild(tr);
+          });
+        });
+    });
+
+function eliminarBatch(batchId){
+  if(!confirm(`¿Eliminar el batch ${batchId}? Esto borra BD y bucket.`)) return;
+  fetch(`/ingesta/batches/${batchId}`,{method:'DELETE'})
+    .then(r=>r.json())
+    .then(res=>{
+      alert(res.message||'Batch eliminado');
+      location.reload();
+    })
+    .catch(()=>alert('Error eliminando batch'));
 }
 </script>
+
 </body>
+
 </html>
