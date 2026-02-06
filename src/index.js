@@ -52,7 +52,7 @@ const { PDFDocument } = require('pdf-lib')
 const { execSync } = require('child_process')
 
 async function prepararPdfOficial(buffer, { radicado, tipo, descripcion }) {
-   const pdf = await PDFDocument.load(buffer)
+   const pdf = await PDFDocument.load(buffer, { ignoreEncryption: true })
 
    pdf.setTitle(radicado)
    pdf.setSubject(descripcion)
@@ -81,13 +81,18 @@ async function prepararPdfOficial(buffer, { radicado, tipo, descripcion }) {
 /* ===============================
    UTILIDAD ARCHIVO (DEDUP)
 ================================ */
-async function obtenerArchivo(buffer) {
+async function obtenerArchivo(buffer, customKey = null, hashOriginal = null) {
    const hash = crypto.createHash('sha256').update(buffer).digest('hex')
-   const dup = await db.query(
-      'SELECT id,minio_key FROM archivos WHERE hash_sha256=$1', [hash]
-   )
-   if (dup.rowCount) return { id: dup.rows[0].id, hash }
-   const key = `base/${hash}.pdf`
+
+   // If no custom key, do deduplication
+   if (!customKey) {
+      const dup = await db.query(
+         'SELECT id,minio_key FROM archivos WHERE hash_sha256=$1 OR hash_original=$1', [hash]
+      )
+      if (dup.rowCount) return { id: dup.rows[0].id, hash }
+   }
+
+   const key = customKey || `base/${hash}.pdf`
    await minio.putObject(process.env.MINIO_BUCKET, key, buffer)
 
    // Calcular páginas del PDF
@@ -97,8 +102,8 @@ async function obtenerArchivo(buffer) {
    fs.unlinkSync(tmpPath)
 
    const r = await db.query(
-      'INSERT INTO archivos(hash_sha256,size_bytes,minio_key,paginas) VALUES($1,$2,$3,$4) RETURNING id',
-      [hash, buffer.length, key, paginas]
+      'INSERT INTO archivos(hash_sha256,size_bytes,minio_key,paginas,hash_original) VALUES($1,$2,$3,$4,$5) RETURNING id',
+      [hash, buffer.length, key, paginas, hashOriginal]
    )
    return { id: r.rows[0].id, hash, paginas }
 }
@@ -264,6 +269,7 @@ app.put('/ingesta/:id', async (req, res) => {
    SELECT
    nombre_archivo,
    minio_tmp_key,
+   sha256,
    estado,
    usuario_id,
    dependencia_id
@@ -274,19 +280,34 @@ app.put('/ingesta/:id', async (req, res) => {
       if (!q.rowCount)
          return res.status(404).send('Documento no existe')
 
-      if (q.rows[0].estado !== 'NUEVO')
+      if (q.rows[0].estado !== 'NUEVO' && q.rows[0].estado !== 'DUPLICADO')
          return res.status(409).send('Documento no editable')
 
-      const stream = await minio.getObject(
-         process.env.MINIO_BUCKET_TMP,
-         q.rows[0].minio_tmp_key
-      )
+      const sha256 = q.rows[0].sha256
+      let buffer
 
-      const chunks = []
-      for await (const c of stream) chunks.push(c)
-      const buffer = Buffer.concat(chunks)
+      if (q.rows[0].minio_tmp_key) {
+         const stream = await minio.getObject(
+            process.env.MINIO_BUCKET_TMP,
+            q.rows[0].minio_tmp_key
+         )
+         const chunks = []
+         for await (const c of stream) chunks.push(c)
+         buffer = Buffer.concat(chunks)
+      } else {
+         // Si no hay key temporal, es un duplicado que no se subió.
+         // Buscamos el contenido original en 'archivos' -> minio_key
+         const arch = await db.query('SELECT minio_key FROM archivos WHERE hash_sha256=$1 OR hash_original=$1', [sha256])
+         if (!arch.rowCount) return res.status(404).send('Contenido original no encontrado')
 
-      const { id: archivoId } = await obtenerArchivo(buffer)
+         const stream = await minio.getObject(
+            process.env.MINIO_BUCKET,
+            arch.rows[0].minio_key
+         )
+         const chunks = []
+         for await (const c of stream) chunks.push(c)
+         buffer = Buffer.concat(chunks)
+      }
 
       // 🔴 OBTENER ACRONIMO DEPENDENCIA
       console.log('Ingesta ID:', id, 'Dependencia ID:', q.rows[0].dependencia_id);
@@ -303,12 +324,29 @@ app.put('/ingesta/:id', async (req, res) => {
 
       const radicado = `${prefijo}-${Date.now()}`
 
+      const { buffer: bufferOficial, hash } = await prepararPdfOficial(buffer, {
+         radicado,
+         tipo: tipo_documental,
+         descripcion
+      })
+
+      // CALCULATE STORAGE KEY
+      // <ACRONYM>/<YEAR>/<RADICADO>.pdf
+      const year = new Date(fecha_creacion_doc).getFullYear();
+      const storageKey = `${prefijo}/${year}/${radicado}.pdf`;
+
+      // Obtener hash original del buffer antes de oficializar
+      const hashOriginal = crypto.createHash('sha256').update(buffer).digest('hex')
+
+      // Pass storageKey to bypass dedup and force location, and hashOriginal to store it
+      const { id: archivoId } = await obtenerArchivo(bufferOficial, storageKey, hashOriginal)
+
       const d = await db.query(`
-   INSERT INTO documentos
-   (radicado,nombre_documento,tipo_documental,descripcion,usuario_id,dependencia_id,created_at,fecha_creacion_doc)
-   VALUES($1,$2,$3,$4,$5,$6,now(),$7)
-   RETURNING id
-   `, [
+    INSERT INTO documentos
+    (radicado,nombre_documento,tipo_documental,descripcion,usuario_id,dependencia_id,created_at,fecha_creacion_doc)
+    VALUES($1,$2,$3,$4,$5,$6,now(),$7)
+    RETURNING id
+    `, [
          radicado,
          q.rows[0].nombre_archivo,
          tipo_documental,
@@ -322,30 +360,35 @@ app.put('/ingesta/:id', async (req, res) => {
       if (Array.isArray(etiquetas) && etiquetas.length > 0) {
          for (const etiquetaId of etiquetas) {
             await db.query(`
-                INSERT INTO documento_etiquetas(documento_id, etiqueta_id)
-                VALUES($1, $2) ON CONFLICT DO NOTHING
-            `, [d.rows[0].id, etiquetaId]);
+                 INSERT INTO documento_etiquetas(documento_id, etiqueta_id)
+                 VALUES($1, $2) ON CONFLICT DO NOTHING
+             `, [d.rows[0].id, etiquetaId]);
          }
       }
 
 
       await db.query(`
-   INSERT INTO documento_versiones
-   (documento_id,archivo_id,version)
-   VALUES($1,$2,1)
-  `, [d.rows[0].id, archivoId])
+    INSERT INTO documento_versiones
+    (documento_id,archivo_id,version)
+    VALUES($1,$2,1)
+   `, [d.rows[0].id, archivoId])
 
       await insertQR(
-         buffer,
+         bufferOficial,
          radicado,
          `http://localhost:3000/verificar/${radicado}`
       )
 
       await db.query(`
-   UPDATE ingesta_documentos
-   SET estado='OFICIALIZADO'
-   WHERE id=$1
-  `, [id])
+    UPDATE ingesta_documentos
+    SET estado='OFICIALIZADO'
+    WHERE id=$1
+   `, [id])
+
+      // Eliminar de MinIO Temporal si existe
+      if (q.rows[0].minio_tmp_key) {
+         await minio.removeObject(process.env.MINIO_BUCKET_TMP, q.rows[0].minio_tmp_key)
+      }
 
       res.json({ ok: true, radicado })
    } catch (e) {
@@ -441,32 +484,33 @@ app.get('/ingesta/batch/:batch', async (req, res) => {
       const { estado } = req.query
       let sql = `
     SELECT
-     id,
-     nombre_archivo,
-     sha256,
-     paginas,
-     estado,
-     tipo_documental,
-     descripcion
-    FROM ingesta_documentos
-    WHERE batch_id=$1
-    AND sha256 NOT IN (SELECT hash_sha256 FROM archivos)
+     i.id,
+     i.nombre_archivo,
+     i.sha256,
+     i.paginas,
+     CASE 
+        WHEN (SELECT 1 FROM archivos a WHERE a.hash_sha256 = i.sha256 OR a.hash_original = i.sha256 LIMIT 1) IS NOT NULL THEN 'DUPLICADO'
+        ELSE i.estado
+     END as estado,
+     i.tipo_documental,
+     i.descripcion
+    FROM ingesta_documentos i
+    WHERE i.batch_id=$1
    `
       const params = [req.params.batch]
-
-      if (estado) {
-         sql += ' AND estado=$2'
-         params.push(estado)
-      }
-
-      sql += ' ORDER BY id'
+      sql += ' ORDER BY i.id'
 
       const q = await db.query(sql, params)
+      let rows = q.rows
 
-      // Retornar array vacío en vez de 404 si es un filtro válido pero sin resultados
-      // if (!q.rowCount) return res.sendStatus(404) 
+      // JavaScript level filtering for 'NUEVO' to include dynamic detection
+      if (estado === 'NUEVO') {
+         rows = rows.filter(r => r.estado === 'NUEVO')
+      } else if (estado) {
+         rows = rows.filter(r => r.estado === estado)
+      }
 
-      res.json(q.rows)
+      res.json(rows)
    } catch (e) {
       console.error(e)
       res.status(500).send(e.message)
@@ -675,21 +719,26 @@ app.post('/ingesta/batch', auth, async (req, res) => {
                const sha256 = hash.digest('hex')
                const paginas = await getPageCount(tmp)
 
-               // 🔴 DETECCIÓN DE DUPLICADO OFICIAL
+               // 🔴 DETECCIÓN DE DUPLICADO
                const dup = await db.query(
-                  'SELECT id FROM archivos WHERE hash_sha256=$1',
+                  'SELECT id FROM archivos WHERE hash_sha256=$1 OR hash_original=$1',
                   [sha256]
                )
 
                const estado = dup.rowCount ? 'DUPLICADO' : 'NUEVO'
 
-               const tmpKey = `ingesta/${batchId}/${Date.now()}-${nombreArchivo}`
 
-               await minio.putObject(
-                  process.env.MINIO_BUCKET_TMP,
-                  tmpKey,
-                  fs.readFileSync(tmp)
-               )
+               let tmpKey = null
+
+               // Only upload if NOT a duplicate
+               if (estado === 'NUEVO') {
+                  tmpKey = `ingesta/${batchId}/${Date.now()}-${nombreArchivo}`
+                  await minio.putObject(
+                     process.env.MINIO_BUCKET_TMP,
+                     tmpKey,
+                     fs.readFileSync(tmp)
+                  )
+               }
 
                await db.query(`
       INSERT INTO ingesta_documentos
@@ -741,7 +790,36 @@ app.post('/ingesta/batch', auth, async (req, res) => {
 })
 
 
+app.delete('/ingesta/batch/:id', auth, async (req, res) => {
+   const { id } = req.params;
+   const usuario_id = req.user.id;
 
+   try {
+      console.log(`Deleting batch ${id} for user ${usuario_id}`);
+
+      // 1. Get MinIO keys
+      const q = await db.query(
+         'SELECT minio_tmp_key FROM ingesta_documentos WHERE batch_id=$1', // allow any user to delete? assuming yes for now based on req or restrict to owner
+         [id]
+      );
+
+      // 2. Delete from MinIO
+      if (q.rowCount > 0) {
+         const keys = q.rows.map(r => r.minio_tmp_key).filter(k => k);
+         // minio removeObjects takes array of names
+         await minio.removeObjects(process.env.MINIO_BUCKET_TMP, keys);
+      }
+
+      // 3. Delete from DB
+      await db.query('DELETE FROM ingesta_documentos WHERE batch_id=$1', [id]);
+
+      res.sendStatus(200);
+
+   } catch (e) {
+      console.error('Error deleting batch:', e);
+      res.status(500).send(e.message);
+   }
+});
 /* ===============================
    LOGIN Y OBTENER INFO USUARIO
 ================================ */

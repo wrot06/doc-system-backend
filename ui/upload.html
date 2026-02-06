@@ -120,8 +120,13 @@
          files.forEach(f => fd.append('files', f))
          tbody.innerHTML = ''
 
+         const token = localStorage.getItem('token')
          const res = await fetch('http://localhost:3000/ingesta/batch', {
             method: 'POST',
+            headers: {
+               'Authorization': 'Bearer ' + token
+               // Note: 'Content-Type' is automatically set by fetch when using FormData (including boundary)
+            },
             body: fd
          })
          const data = await res.json()
