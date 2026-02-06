@@ -27,7 +27,7 @@ export async function actualizarTratamiento(req, res) {
 
     // cargar PDF existente
     const pdfBytes = fs.readFileSync(pdfPath)
-    const pdf = await PDFDocument.load(pdfBytes)
+    const pdf = await PDFDocument.load(pdfBytes, { ignoreEncryption: true })
 
     // METADATOS ARCHIVÍSTICOS
     pdf.setTitle(d.nombre_archivo)

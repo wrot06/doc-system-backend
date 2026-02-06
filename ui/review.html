@@ -202,6 +202,8 @@
     Batch ID:
     <input id="batch" placeholder="ING-..." style="width:250px">
     <button onclick="cargarBatch()">Cargar</button>
+    <button onclick="eliminarBatch()"
+      style="background:#dc3545; color:white; border-color:#dc3545; margin-left:10px">🗑️ Eliminar Batch</button>
   </header>
 
   <main>
@@ -271,11 +273,48 @@
     let documentos = []
     let actual = null
 
+    async function eliminarBatch() {
+      const batch = document.getElementById('batch').value;
+      if (!batch) return alert('Ingrese un ID de Batch');
+
+      if (!confirm(`¿Está seguro de eliminar el batch "${batch}" y TODOS sus documentos?\nEsta acción es irreversible.`)) return;
+
+      try {
+        const res = await fetch(`/ingesta/batch/${batch}`, {
+          method: 'DELETE',
+          headers: getHeaders()
+        });
+
+        if (res.ok) {
+          alert('Batch eliminado correctamente');
+          // Limpiar UI
+          document.getElementById('batch').value = '';
+          documentos = [];
+          document.getElementById('archivos').innerHTML = '';
+          document.getElementById('nombreArchivo').innerText = 'Seleccione un documento';
+          document.getElementById('visor').src = '';
+          document.getElementById('visor').style.display = 'none';
+
+          // Limpiar URL param
+          const url = new URL(window.location);
+          url.searchParams.delete('batch_id');
+          window.history.pushState({}, '', url);
+
+        } else {
+          const txt = await res.text();
+          alert('Error al eliminar: ' + txt);
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Error de conexión');
+      }
+    }
+
     async function cargarBatch() {
       const batch = document.getElementById('batch').value
       if (!batch) return alert('Batch requerido')
 
-      const res = await fetch(`/ingesta/batch/${batch}?estado=NUEVO`)
+      const res = await fetch(`/ingesta/batch/${batch}?estado=NUEVO`, { headers: getHeaders() })
       if (!res.ok) return alert('Batch no encontrado o sin documentos pendientes')
 
       const data = await res.json()
@@ -330,7 +369,7 @@
 
       const visor = document.getElementById('visor')
 
-      if (doc.estado === 'NUEVO' && doc.sha256) {
+      if ((doc.estado === 'NUEVO' || doc.estado === 'DUPLICADO') && doc.sha256) {
         visor.style.display = 'block'
         if (!Number.isInteger(Number(doc.id))) {
           alert('ID inválido para vista previa')
@@ -441,7 +480,7 @@
 
     async function guardar() {
       if (!actual) return alert('Seleccione un documento')
-      if (actual.estado !== 'NUEVO')
+      if (actual.estado !== 'NUEVO' && actual.estado !== 'DUPLICADO')
         return alert('Documento no editable')
 
       const tipoRadio = document.querySelector('input[name="tipo"]:checked')
