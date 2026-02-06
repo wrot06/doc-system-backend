@@ -233,6 +233,28 @@
           </label>
         </div>
 
+        <label for="fechaDoc">Fecha de creación <span style="color:red">*</span></label>
+        <input type="date" id="fechaDoc" max="">
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px;">
+          <label style="margin:0">Etiquetas</label>
+          <button class="small-btn" onclick="toggleTagForm()">+ Gestionar</button>
+        </div>
+
+        <!-- Tag Management -->
+        <div id="tagForm"
+          style="display:none; padding:10px; background:#f8f9fa; border:1px solid #ddd; margin-top:5px;">
+          <input id="newTagName" placeholder="Nombre (ej. Especialización Comercial)"
+            style="width:100%; margin-bottom:5px">
+          <input id="newTagAcronym" placeholder="Acrónimo (ej. COMERCIAL)" style="width:100px;">
+          <button onclick="crearEtiqueta()">Crear</button>
+        </div>
+
+        <div id="listaEtiquetas"
+          style="display:flex; flex-wrap:wrap; gap:5px; margin-top:5px; max-height:100px; overflow-y:auto; padding:5px; border:1px solid #eee;">
+          <!-- JS will fill this -->
+        </div>
+
         <div class="label-header">
           <label style="margin-top:0">Descripción <span style="color:red">*</span></label>
           <button id="grabarBoton" title="Presione para grabar o mantenga F2/F9">🎤</button>
@@ -324,6 +346,99 @@
     }
 
 
+    function getHeaders() {
+      const token = localStorage.getItem('token');
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      };
+    }
+
+    async function cargarEtiquetas() {
+      try {
+        const res = await fetch('/etiquetas', { headers: getHeaders() });
+        if (!res.ok) return;
+        const tags = await res.json();
+        const div = document.getElementById('listaEtiquetas');
+        div.innerHTML = '';
+        tags.forEach(t => {
+          const span = document.createElement('span');
+          span.style.padding = '4px 8px';
+          span.style.background = '#e9ecef';
+          span.style.borderRadius = '12px';
+          span.style.fontSize = '12px';
+          span.style.display = 'flex';
+          span.style.alignItems = 'center';
+          span.style.gap = '5px';
+
+          const chk = document.createElement('input');
+          chk.type = 'checkbox';
+          chk.value = t.id;
+
+          const lbl = document.createElement('span');
+          lbl.innerText = `${t.nombre} (${t.acronimo})`;
+
+          const del = document.createElement('span');
+          del.innerText = '×';
+          del.style.color = 'red';
+          del.style.cursor = 'pointer';
+          del.style.fontWeight = 'bold';
+          del.onclick = (e) => {
+            e.preventDefault();
+            eliminarEtiqueta(t.id);
+          };
+
+          span.appendChild(chk);
+          span.appendChild(lbl);
+          span.appendChild(del);
+          div.appendChild(span);
+        });
+      } catch (e) { console.error(e); }
+    }
+
+    function toggleTagForm() {
+      const f = document.getElementById('tagForm');
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function crearEtiqueta() {
+      const nombre = document.getElementById('newTagName').value;
+      const acronimo = document.getElementById('newTagAcronym').value;
+      if (!nombre || !acronimo) return alert('Nombre y acrónimo requeridos');
+
+      const res = await fetch('/etiquetas', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ nombre, acronimo })
+      });
+
+      if (res.ok) {
+        document.getElementById('newTagName').value = '';
+        document.getElementById('newTagAcronym').value = '';
+        toggleTagForm();
+        cargarEtiquetas();
+      } else {
+        const txt = await res.text();
+        alert('Error al crear etiqueta: ' + txt);
+      }
+    }
+
+    async function eliminarEtiqueta(id) {
+      if (!confirm('¿Eliminar etiqueta?')) return;
+      await fetch(`/etiquetas/${id}`, {
+        method: 'DELETE',
+        headers: getHeaders()
+      });
+      cargarEtiquetas();
+    }
+
+    // Load tags on init
+    cargarEtiquetas();
+
+    // Set max date to today
+    document.getElementById('fechaDoc').max = new Date().toISOString().split('T')[0];
+
+
     async function guardar() {
       if (!actual) return alert('Seleccione un documento')
       if (actual.estado !== 'NUEVO')
@@ -332,16 +447,22 @@
       const tipoRadio = document.querySelector('input[name="tipo"]:checked')
       const tipo = tipoRadio ? tipoRadio.value : ''
       const desc = document.getElementById('descripcion').value
+      const fechaDoc = document.getElementById('fechaDoc').value
+
+      const etiquetas = Array.from(document.querySelectorAll('#listaEtiquetas input:checked')).map(c => Number(c.value));
 
       if (!tipo) return alert('Debe seleccionar un tipo documental')
       if (!desc) return alert('Debe ingresar una descripción')
+      if (!fechaDoc) return alert('Debe ingresar la fecha de creación del documento')
 
       const res = await fetch(`/ingesta/${actual.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           tipo_documental: tipo,
-          descripcion: desc
+          descripcion: desc,
+          fecha_creacion_doc: fechaDoc,
+          etiquetas
         })
       })
 
@@ -355,12 +476,16 @@
         document.getElementById('nombreArchivo').innerText = 'Seleccione un documento'
         document.querySelectorAll('input[name="tipo"]').forEach(r => r.checked = false)
         document.getElementById('descripcion').value = ''
+        document.getElementById('fechaDoc').value = ''
+        document.querySelectorAll('#listaEtiquetas input').forEach(c => c.checked = false) // Clear tags
+
         document.getElementById('visor').src = ''
         document.getElementById('visor').style.display = 'none'
 
         await cargarBatch()
       } else {
-        alert('Error al guardar')
+        const txt = await res.text();
+        alert('Error al guardar: ' + txt)
       }
     }
 

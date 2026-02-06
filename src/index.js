@@ -25,6 +25,7 @@ const upload = multer()
 
 const authRoutes = require('./routes/auth')
 app.use('/auth', authRoutes)
+app.use('/etiquetas', require('./routes/etiquetas'))
 
 /* ===============================
    MIDDLEWARE AUTH
@@ -244,9 +245,20 @@ app.get('/verificar/:radicado', async (req, res) => {
 app.put('/ingesta/:id', async (req, res) => {
    try {
       const id = Number(req.params.id)
-      const { tipo_documental, descripcion } = req.body
+      const { tipo_documental, descripcion, fecha_creacion_doc, etiquetas } = req.body
       if (!id || !tipo_documental || !descripcion)
          return res.status(400).send('Datos incompletos')
+
+      // Validar fecha creacion
+      if (fecha_creacion_doc) {
+         const d = new Date()
+         const hoyStr = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+         if (fecha_creacion_doc > hoyStr) {
+            return res.status(400).send('La fecha de creación no puede ser una fecha futura')
+         }
+      } else {
+         return res.status(400).send('Fecha de creación requerida')
+      }
 
       const q = await db.query(`
    SELECT
@@ -276,12 +288,25 @@ app.put('/ingesta/:id', async (req, res) => {
 
       const { id: archivoId } = await obtenerArchivo(buffer)
 
-      const radicado = `RAD-${Date.now()}`
+      // 🔴 OBTENER ACRONIMO DEPENDENCIA
+      console.log('Ingesta ID:', id, 'Dependencia ID:', q.rows[0].dependencia_id);
+      const dep = await db.query(
+         'SELECT acronimo FROM dependencias WHERE id=$1',
+         [q.rows[0].dependencia_id]
+      )
+
+      let prefijo = 'RAD'
+      if (dep.rowCount && dep.rows[0].acronimo) {
+         prefijo = dep.rows[0].acronimo
+      }
+      console.log('Acronimo found:', dep.rows[0]?.acronimo, 'Prefijo:', prefijo);
+
+      const radicado = `${prefijo}-${Date.now()}`
 
       const d = await db.query(`
    INSERT INTO documentos
-   (radicado,nombre_documento,tipo_documental,descripcion,usuario_id,dependencia_id,created_at)
-   VALUES($1,$2,$3,$4,$5,$6,now())
+   (radicado,nombre_documento,tipo_documental,descripcion,usuario_id,dependencia_id,created_at,fecha_creacion_doc)
+   VALUES($1,$2,$3,$4,$5,$6,now(),$7)
    RETURNING id
    `, [
          radicado,
@@ -289,8 +314,19 @@ app.put('/ingesta/:id', async (req, res) => {
          tipo_documental,
          descripcion,
          q.rows[0].usuario_id,
-         q.rows[0].dependencia_id
+         q.rows[0].dependencia_id,
+         fecha_creacion_doc
       ])
+
+      // GUARDAR ETIQUETAS
+      if (Array.isArray(etiquetas) && etiquetas.length > 0) {
+         for (const etiquetaId of etiquetas) {
+            await db.query(`
+                INSERT INTO documento_etiquetas(documento_id, etiqueta_id)
+                VALUES($1, $2) ON CONFLICT DO NOTHING
+            `, [d.rows[0].id, etiquetaId]);
+         }
+      }
 
 
       await db.query(`
@@ -608,12 +644,12 @@ app.delete('/documentos/:radicado', auth, async (req, res) => {
 /* ===============================
    INGESTA MASIVA – PASO 1 (UPLOAD)
 ================================ */
-app.post('/ingesta/batch', async (req, res) => {
+app.post('/ingesta/batch', auth, async (req, res) => {
    const bb = Busboy({ headers: req.headers })
    const resultados = []
    const tareas = []
    const batchId = `ING-${Date.now()}`
-   const usuarioId = 1
+   const usuarioId = req.user.id
 
    const u = await db.query(
       'SELECT dependencia_id FROM usuarios WHERE id=$1',
