@@ -36,13 +36,15 @@ function auth(req, res, next) {
    if (!h) return res.sendStatus(401)
    try {
       const token = jwt.verify(h.split(' ')[1], process.env.JWT_SECRET)
-      req.user = { id: token.uid }
+      // Including role in req.user so subsequent middlewares like isRoot can use it
+      req.user = { id: token.uid, rol: token.rol, dependencia_id: token.dependencia_id }
       next()
    } catch (e) {
       return res.sendStatus(401)
    }
 }
 
+app.use('/usuarios', auth, require('./routes/usuarios'))
 
 /* ===============================
    UTILIDAD ARCHIVO (DEDUP)
@@ -551,8 +553,38 @@ app.get('/documentos/tmp/:id', async (req, res) => {
 
 
 
+
 /* ===============================
-   VER DOCUMENTO ORIGINAL (DUPLICADO)
+   VER DOCUMENTO ORIGINAL POR HASH (DUPLICADOS)
+================================ */
+/* ===============================
+   VER DOCUMENTO ORIGINAL POR HASH (DUPLICADOS)
+================================ */
+app.get('/archivos/original/:hash', async (req, res) => {
+   try {
+      const { hash } = req.params
+      const q = await db.query(
+         'SELECT minio_key FROM archivos WHERE hash_sha256=$1 OR hash_original=$2 LIMIT 1',
+         [hash, hash]
+      )
+      if (!q.rowCount) return res.status(404).send('Archivo no encontrado')
+
+      const stream = await minio.getObject(
+         process.env.MINIO_BUCKET,
+         q.rows[0].minio_key
+      )
+
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader('Content-Disposition', 'inline')
+      stream.pipe(res)
+   } catch (e) {
+      console.error(e)
+      res.status(500).send(e.message)
+   }
+})
+
+/* ===============================
+   VER DOCUMENTO TEMPORAL (INGESTA)
 ================================ */
 app.get('/ingesta/tmp/:id', async (req, res) => {
    try {
@@ -716,6 +748,7 @@ app.post('/ingesta/batch', auth, async (req, res) => {
 
          ws.on('close', async () => {
             try {
+
                const sha256 = hash.digest('hex')
                const paginas = await getPageCount(tmp)
 
@@ -726,7 +759,26 @@ app.post('/ingesta/batch', auth, async (req, res) => {
                )
 
                const estado = dup.rowCount ? 'DUPLICADO' : 'NUEVO'
+               let originalInfo = null
 
+               if (estado === 'DUPLICADO') {
+                  try {
+                     const qInfo = await db.query(`
+                           SELECT d.nombre_documento, dep.nombre as dep_nombre, u.nombre as user_nombre 
+                           FROM archivos a
+                           JOIN documento_versiones dv ON dv.archivo_id = a.id
+                           JOIN documentos d ON d.id = dv.documento_id
+                           JOIN dependencias dep ON dep.id = d.dependencia_id
+                           JOIN usuarios u ON u.id = d.usuario_id
+                           WHERE a.hash_sha256=$1 OR a.hash_original=$1
+                           ORDER BY d.created_at DESC
+                           LIMIT 1
+                       `, [sha256])
+                     if (qInfo.rowCount) originalInfo = qInfo.rows[0]
+                  } catch (err) {
+                     console.error('Error fetching original info:', err)
+                  }
+               }
 
                let tmpKey = null
 
@@ -760,7 +812,8 @@ app.post('/ingesta/batch', auth, async (req, res) => {
                   archivo: nombreArchivo,
                   sha256,
                   paginas,
-                  estado
+                  estado,
+                  originalInfo
                })
             } catch (e) {
                await db.query(`
@@ -835,7 +888,7 @@ app.get('/me', async (req, res) => {
     u.dependencia_id,
     d.nombre as nombre_dependencia
    FROM usuarios u
-   JOIN dependencias d ON d.id=u.dependencia_id
+   LEFT JOIN dependencias d ON d.id=u.dependencia_id
    WHERE u.id=$1
   `, [token.uid])
 

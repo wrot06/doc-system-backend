@@ -80,7 +80,7 @@
       <thead>
          <tr>
             <th>Archivo</th>
-            <th>SHA-256</th>
+            <th>Oficina / Usuario</th>
             <th>Páginas</th>
             <th>Estado</th>
             <th>Ver Original</th>
@@ -152,9 +152,20 @@
                accion = r.error || ''
             }
 
+            // Construct Info cell content (Office/User only)
+            let infoContent = '';
+            if (r.originalInfo) {
+               infoContent = `<small style="color:#000">
+                    <div style="font-weight:bold">${r.originalInfo.dep_nombre}</div>
+                    <div>${r.originalInfo.user_nombre}</div>
+                </small>`;
+            } else if (r.estado === 'DUPLICADO') {
+               infoContent = '<small style="color:#666">Duplicado detectado</small>';
+            }
+
             tr.innerHTML = `
    <td>${r.archivo}</td>
-   <td>${r.sha256 || ''}</td>
+   <td>${infoContent}</td>
    <td>${r.paginas || ''}</td>
    <td>${r.estado}</td>
    <td>${accion}</td>

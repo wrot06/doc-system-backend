@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <title>Gestión de Usuarios - SGA</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <h2 id="page-title">Gestión de Usuarios (Root)</h2>
+
+    <div style="padding: 20px; display: flex; gap: 10px;">
+        <button onclick="mostrarModalUsuario()">+ Nuevo Usuario</button>
+        <button onclick="mostrarModalOficina()">+ Nueva Oficina</button>
+    </div>
+
+    <div id="users-container" style="padding: 20px;">
+        <table id="users-table" style="width:100%; border-collapse: collapse;">
+            <thead>
+                <tr style="background:#eee; text-align:left;">
+                    <th style="padding:8px; border:1px solid #ccc;">ID</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Usuario</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Nombre</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Rol</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Activo</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Dependencia Actual</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Asignar Dependencia</th>
+                    <th style="padding:8px; border:1px solid #ccc;">Acción</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-usuario" class="modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+        <div style="background:white; padding:20px; margin:50px auto; width:400px; border-radius:5px;">
+            <h3>Nuevo Usuario</h3>
+            <input type="text" id="new-user" placeholder="Usuario" style="width:100%; margin-bottom:10px;">
+            <input type="password" id="new-pass" placeholder="Contraseña" style="width:100%; margin-bottom:10px;">
+            <input type="text" id="new-name" placeholder="Nombre Completo" style="width:100%; margin-bottom:10px;">
+            <select id="new-rol" style="width:100%; margin-bottom:10px;">
+                <option value="consulta">Consulta</option>
+                <option value="operador">Operador</option>
+                <option value="admin">Admin</option>
+            </select>
+            <select id="new-dep" style="width:100%; margin-bottom:10px;">
+                <option value="">-- Sin Oficina (Solo Root) --</option>
+            </select>
+            <button onclick="crearUsuario()">Crear</button>
+            <button onclick="document.getElementById('modal-usuario').style.display='none'">Cancelar</button>
+        </div>
+    </div>
+
+    <div id="modal-oficina" class="modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5);">
+        <div style="background:white; padding:20px; margin:50px auto; width:400px; border-radius:5px;">
+            <h3>Nueva Oficina</h3>
+            <input type="text" id="new-off-name" placeholder="Nombre de Oficina"
+                style="width:100%; margin-bottom:10px;">
+
+            <select id="new-off-campus" style="width:100%; margin-bottom:10px;" onchange="filtrarSedesPorCampus()">
+                <option value="">-- Seleccionar Extensión/Ciudad (Pasto, Ipiales...) --</option>
+            </select>
+
+            <select id="new-off-sede" style="width:100%; margin-bottom:10px;">
+                <option value="">-- Seleccionar Sede (Torobajo, Centro...) --</option>
+            </select>
+            <select id="new-off-parent" style="width:100%; margin-bottom:10px;">
+                <option value="">-- Seleccionar Oficina Superior --</option>
+            </select>
+            <input type="text" id="new-off-acr" placeholder="Acrónimo" style="width:100%; margin-bottom:10px;">
+            <input type="text" id="new-off-desc" placeholder="Descripción" style="width:100%; margin-bottom:10px;">
+            <button onclick="crearOficina()">Crear</button>
+            <button onclick="document.getElementById('modal-oficina').style.display='none'">Cancelar</button>
+        </div>
+    </div>
+
+    <script src="common.js"></script>
+    <script src="js/usuarios.js"></script>
+</body>
+
+</html>
